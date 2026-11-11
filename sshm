@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VERSION="2.0.2" test
+VERSION="2.0.2"
 
 CONFIG_FILE="$HOME/.ssh_servers"
 KDE_REMOTEVIEW_DIR="$HOME/.local/share/remoteview"
