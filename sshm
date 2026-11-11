@@ -1,11 +1,25 @@
 #!/usr/bin/env bash
 
-VERSION="1.0.0"
+VERSION="1.0.1"
 
 CONFIG_FILE="$HOME/.ssh_servers"
 KDE_REMOTEVIEW_DIR="$HOME/.local/share/remoteview"
+GTK_BOOKMARKS_FILE="$HOME/.config/gtk-3.0/bookmarks"
 touch "$CONFIG_FILE"
-mkdir -p "$KDE_REMOTEVIEW_DIR"
+
+# Detect Desktop Environment
+DE_TYPE="generic"
+case "${XDG_CURRENT_DESKTOP,,}" in
+    *kde*|*plasma*) DE_TYPE="kde" ;;
+    *) DE_TYPE="gtk" ;;
+esac
+
+if [ "$DE_TYPE" == "kde" ]; then
+    mkdir -p "$KDE_REMOTEVIEW_DIR"
+else
+    mkdir -p "$(dirname "$GTK_BOOKMARKS_FILE")"
+    touch "$GTK_BOOKMARKS_FILE"
+fi
 
 # Color Palette Definitions
 C_RESET="\e[0m"
@@ -130,7 +144,7 @@ draw_wireframe() {
 }
 
 draw_left_legend() {
-    printf "\e[%d;%dH   ${C_BLUE}●${C_RESET} Mounted to Dolphin   ${C_GREEN}●${C_RESET} Active" "$ROW_LEGEND_TEXT_1" "$(( LEFT_START + 1 ))"
+    printf "\e[%d;%dH   ${C_BLUE}●${C_RESET} Mounted/Bookmarked   ${C_GREEN}●${C_RESET} Active" "$ROW_LEGEND_TEXT_1" "$(( LEFT_START + 1 ))"
     printf "\e[%d;%dH   ${C_BLUE}○${C_RESET} Unmounted            ${C_RED}○${C_RESET} Offline" "$ROW_LEGEND_TEXT_2" "$(( LEFT_START + 1 ))"
 }
 
@@ -168,52 +182,81 @@ send_ssh_key() {
     read -rp "Press Enter to return to the hub..."
 }
 
-is_kde_folder_added() {
-    local name="$1"
-    local safe_name
-    safe_name=$(echo "$name" | tr ' /' '__')
-    [ -f "$KDE_REMOTEVIEW_DIR/${safe_name}.desktop" ]
-}
-
-add_to_kde_network() {
+is_folder_mounted() {
     local name="$1"
     local user="$2"
     local host="$3"
     local port="$4"
-
     local home_path="/home/$user"
     [ "$user" == "root" ] && home_path="/root"
+    local url="sftp://$user@$host:$port$home_path"
 
-    local safe_name
-    safe_name=$(echo "$name" | tr ' /' '__')
-    local desktop_path="$KDE_REMOTEVIEW_DIR/${safe_name}.desktop"
+    if [ "$DE_TYPE" == "kde" ]; then
+        local safe_name=$(echo "$name" | tr ' /' '__')
+        [ -f "$KDE_REMOTEVIEW_DIR/${safe_name}.desktop" ]
+    else
+        grep -q -F "$url" "$GTK_BOOKMARKS_FILE" 2>/dev/null
+    fi
+}
 
-    cat <<EOF > "$desktop_path"
+mount_network_folder() {
+    local name="$1"
+    local user="$2"
+    local host="$3"
+    local port="$4"
+    local home_path="/home/$user"
+    [ "$user" == "root" ] && home_path="/root"
+    local url="sftp://$user@$host:$port$home_path"
+
+    if [ "$DE_TYPE" == "kde" ]; then
+        local safe_name=$(echo "$name" | tr ' /' '__')
+        local desktop_path="$KDE_REMOTEVIEW_DIR/${safe_name}.desktop"
+
+        cat <<EOF > "$desktop_path"
 [Desktop Entry]
 Icon=folder-remote
 Name=$name
 Type=Link
-URL=sftp://$user@$host:$port$home_path
+URL=$url
 EOF
+    else
+        # Remove old entry if it exists to avoid duplicates
+        sed -i "\|${url}|d" "$GTK_BOOKMARKS_FILE" 2>/dev/null
+        echo "$url $name" >> "$GTK_BOOKMARKS_FILE"
+    fi
 
-    temp_message "✔ Mounted ${name} directly to Dolphin Network Folders."
+    temp_message "✔ Added ${name} to Network Bookmarks."
 }
 
-remove_from_kde_network() {
+unmount_network_folder() {
     local name="$1"
-    local safe_name
-    safe_name=$(echo "$name" | tr ' /' '__')
-    local desktop_path="$KDE_REMOTEVIEW_DIR/${safe_name}.desktop"
+    local user="$2"
+    local host="$3"
+    local port="$4"
+    local home_path="/home/$user"
+    [ "$user" == "root" ] && home_path="/root"
+    local url="sftp://$user@$host:$port$home_path"
 
-    if [ -f "$desktop_path" ]; then
-        rm -f "$desktop_path"
-        temp_message "✔ Removed '${name}' from KDE Network Folders."
+    if [ "$DE_TYPE" == "kde" ]; then
+        local safe_name=$(echo "$name" | tr ' /' '__')
+        local desktop_path="$KDE_REMOTEVIEW_DIR/${safe_name}.desktop"
+        if [ -f "$desktop_path" ]; then
+            rm -f "$desktop_path"
+            temp_message "✔ Removed '${name}' from Network Bookmarks."
+        else
+            temp_message "Notice: '${name}' was not mounted."
+        fi
     else
-        temp_message "Notice: '${name}' was not mounted."
+        if grep -q -F "$url" "$GTK_BOOKMARKS_FILE" 2>/dev/null; then
+            sed -i "\|${url}|d" "$GTK_BOOKMARKS_FILE" 2>/dev/null
+            temp_message "✔ Removed '${name}' from Network Bookmarks."
+        else
+            temp_message "Notice: '${name}' was not bookmarked."
+        fi
     fi
 }
 
-open_in_dolphin() {
+open_file_manager() {
     local name="$1"
     local user="$2"
     local host="$3"
@@ -222,8 +265,15 @@ open_in_dolphin() {
     local home_path="/home/$user"
     [ "$user" == "root" ] && home_path="/root"
 
-    temp_message "🐬 Launching Dolphin for ${name}..."
-    dolphin "sftp://$user@$host:$port$home_path" &>/dev/null &
+    temp_message "📂 Launching File Manager for ${name}..."
+    
+    if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "sftp://$user@$host:$port$home_path" &>/dev/null &
+    elif [ "$DE_TYPE" == "kde" ]; then
+        dolphin "sftp://$user@$host:$port$home_path" &>/dev/null &
+    else
+        nautilus "sftp://$user@$host:$port$home_path" &>/dev/null &
+    fi
 }
 
 open_sftp_shell() {
@@ -242,16 +292,15 @@ open_sftp_shell() {
 delete_server() {
     local idx="$1"
     local srv_name="${names[$idx]}"
+    local srv_user="${users[$idx]}"
+    local srv_host="${hosts[$idx]}"
+    local srv_port="${ports[$idx]}"
 
     local line_num=$(( idx + 1 ))
     sed -i "${line_num}d" "$CONFIG_FILE"
 
-    local safe_name
-    safe_name=$(echo "$srv_name" | tr ' /' '__')
-    local desktop_path="$KDE_REMOTEVIEW_DIR/${safe_name}.desktop"
-    if [ -f "$desktop_path" ]; then
-        rm -f "$desktop_path"
-    fi
+    # Also automatically remove the bookmark
+    unmount_network_folder "$srv_name" "$srv_user" "$srv_host" "$srv_port" >/dev/null 2>&1
 
     temp_message "✔ Server '${srv_name}' permanently deleted."
 }
@@ -277,7 +326,7 @@ render_left_pane() {
     if [ "$idx" -ge 0 ] && [ "$idx" -lt "$host_count" ]; then
         local num=$(( idx + 1 ))
         local st_dot="${status_dots[$idx]}"
-        local k_ind="${kde_status[$idx]}"
+        local k_ind="${mount_status[$idx]}"
 
         local avail=$(( LEFT_INNER_W - 16 ))
         [ "$avail" -lt 10 ] && avail=10
@@ -322,11 +371,11 @@ render_right_pane() {
         case "$act_idx" in
             0) p1="${C_CYAN}[a]${C_RESET}${bg}"; p2="   Add a new server" ; raw_text="  [a]   Add a new server" ;;
             1) p1="${C_PURPLE}[k]${C_RESET}${bg}"; p2="   Push SSH key "; p3="${C_MUTED}(ssh-copy-id)${C_RESET}${bg}"; raw_text="  [k]   Push SSH key (ssh-copy-id)" ;;
-            2) p1="${C_CYAN}[o]${C_RESET}${bg}"; p2="   Open in Dolphin "; p3="${C_MUTED}(SFTP GUI)${C_RESET}${bg}"; raw_text="  [o]   Open in Dolphin (SFTP GUI)" ;;
+            2) p1="${C_CYAN}[o]${C_RESET}${bg}"; p2="   Open File Manager "; p3="${C_MUTED}(SFTP GUI)${C_RESET}${bg}"; raw_text="  [o]   Open File Manager (SFTP GUI)" ;;
             3) p1="${C_BLUE}[s]${C_RESET}${bg}"; p2="   SFTP Shell "; p3="${C_MUTED}(Terminal CLI)${C_RESET}${bg}"; raw_text="  [s]   SFTP Shell (Terminal CLI)" ;;
             4) p1="${C_PURPLE}[e]${C_RESET}${bg}"; p2="   Edit server profile"; raw_text="  [e]   Edit server profile" ;;
-            5) p1="${C_BLUE}[f]${C_RESET}${bg}"; p2="   Add to KDE Network Folders"; raw_text="  [f]   Add to KDE Network Folders" ;;
-            6) p1="${C_YELLOW}[r]${C_RESET}${bg}"; p2="   Remove from KDE Network Folders"; raw_text="  [r]   Remove from KDE Network Folders" ;;
+            5) p1="${C_BLUE}[f]${C_RESET}${bg}"; p2="   Add Network Bookmark"; raw_text="  [f]   Add Network Bookmark" ;;
+            6) p1="${C_YELLOW}[r]${C_RESET}${bg}"; p2="   Remove Network Bookmark"; raw_text="  [r]   Remove Network Bookmark" ;;
             7) p1="${C_ORANGE}[d]${C_RESET}${bg}"; p2="   Delete a saved server"; raw_text="  [d]   Delete a saved server" ;;
             8) p1="${C_GREEN}[u]${C_RESET}${bg}"; p2="   Refresh status now "; p3="${C_MUTED}(Auto 10s)${C_RESET}${bg}"; raw_text="  [u]   Refresh status now (Auto 10s)" ;;
             9) p1="${C_RED}[q]${C_RESET}${bg}"; p2="   Exit Console"; raw_text="  [q]   Exit Console" ;;
@@ -369,7 +418,7 @@ render_sub_left_pane() {
         local orig_idx="${filtered_indices[$idx]}"
         local num=$(( idx + 1 ))
         local st_dot="${status_dots[$orig_idx]}"
-        local k_ind="${kde_status[$orig_idx]}"
+        local k_ind="${mount_status[$orig_idx]}"
 
         local avail=$(( LEFT_INNER_W - 16 ))
         [ "$avail" -lt 10 ] && avail=10
@@ -437,7 +486,7 @@ render_sub_dialog() {
             "DOLPHIN")
                 case "$r" in
                     1) printf "   ${C_CYAN}Launch SFTP GUI Session${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Opens Dolphin in home directory.${C_RESET}" ;;
+                    3) printf "   ${C_MUTED}Opens File Manager to home dir.${C_RESET}" ;;
                     5) printf "   ${C_GREEN}Select a server number below.${C_RESET}" ;;
                 esac
                 ;;
@@ -457,22 +506,22 @@ render_sub_dialog() {
                 ;;
             "KDE_ADD")
                 case "$r" in
-                    1) printf "   ${C_BLUE}Mount to KDE Folders${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Creates Dolphin bookmark link.${C_RESET}" ;;
+                    1) printf "   ${C_BLUE}Mount Network Bookmark${C_RESET}" ;;
+                    3) printf "   ${C_MUTED}Creates File Manager link.${C_RESET}" ;;
                     5) printf "   ${C_GREEN}Select a server number below.${C_RESET}" ;;
                 esac
                 ;;
             "KDE_REM")
                 case "$r" in
-                    1) printf "   ${C_YELLOW}Unmount from KDE Folders${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Removes Dolphin bookmark link.${C_RESET}" ;;
+                    1) printf "   ${C_YELLOW}Unmount Network Bookmark${C_RESET}" ;;
+                    3) printf "   ${C_MUTED}Removes File Manager link.${C_RESET}" ;;
                     5) printf "   ${C_YELLOW}Select mounted server below.${C_RESET}" ;;
                 esac
                 ;;
             "DEL")
                 case "$r" in
                     1) printf "   ${C_RED}Delete Server Profile${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Removes profile and KDE link.${C_RESET}" ;;
+                    3) printf "   ${C_MUTED}Removes profile and network link.${C_RESET}" ;;
                     5) printf "   ${C_RED}Select a server number below.${C_RESET}" ;;
                 esac
                 ;;
@@ -681,13 +730,8 @@ edit_server_flow() {
             echo "${names[$i]}|${users[$i]}|${hosts[$i]}|${ports[$i]}" >> "$CONFIG_FILE"
         done
 
-        local old_safe
-        old_safe=$(echo "$cur_name" | tr ' /' '__')
-        local old_desktop="$KDE_REMOTEVIEW_DIR/${old_safe}.desktop"
-        if [ -f "$old_desktop" ]; then
-            rm -f "$old_desktop"
-            add_to_kde_network "$new_name" "$new_user" "$new_host" "$new_port"
-        fi
+        unmount_network_folder "$cur_name" "$cur_user" "$cur_host" "$cur_port" >/dev/null 2>&1
+        mount_network_folder "$new_name" "$new_user" "$new_host" "$new_port"
 
         temp_message "✔ Server profile successfully updated!"
     fi
@@ -702,7 +746,7 @@ while true; do
     hosts=()
     ports=()
     status_dots=()
-    kde_status=()
+    mount_status=()
 
     if [ -s "$CONFIG_FILE" ]; then
         while IFS='|' read -r name user host port; do
@@ -718,10 +762,10 @@ while true; do
             fi
             status_dots+=("$st_dot")
 
-            if is_kde_folder_added "$name"; then
-                kde_status+=("${C_BLUE}●${C_RESET}")
+            if is_folder_mounted "$name" "$user" "$host" "$port"; then
+                mount_status+=("${C_BLUE}●${C_RESET}")
             else
-                kde_status+=("${C_BLUE}○${C_RESET}")
+                mount_status+=("${C_BLUE}○${C_RESET}")
             fi
         done < "$CONFIG_FILE"
     fi
@@ -903,13 +947,13 @@ while true; do
             all_indices=()
             for i in "${!names[@]}"; do all_indices+=("$i"); done
 
-            render_sub_dialog "OPEN REMOTE IN DOLPHIN" "${C_CYAN}" "DOLPHIN" "${all_indices[@]}"
+            render_sub_dialog "OPEN REMOTE IN FILE MANAGER" "${C_CYAN}" "DOLPHIN" "${all_indices[@]}"
             get_server_selection "Enter server number to launch: " "${all_indices[@]}"
             srv_num="$SRV_NUM_CHOICE"
 
             if [[ "$srv_num" =~ ^[0-9]+$ ]] && [ "$srv_num" -ge 1 ] && [ "$srv_num" -le "${#names[@]}" ]; then
                 idx=$((srv_num - 1))
-                open_in_dolphin "${names[$idx]}" "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}"
+                open_file_manager "${names[$idx]}" "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}"
             fi
             ;;
         [Ss])
@@ -931,45 +975,45 @@ while true; do
         [Ff])
             unadded_indices=()
             for i in "${!names[@]}"; do
-                if ! is_kde_folder_added "${names[$i]}"; then
+                if ! is_folder_mounted "${names[$i]}" "${users[$i]}" "${hosts[$i]}" "${ports[$i]}"; then
                     unadded_indices+=("$i")
                 fi
             done
 
             if [ ${#unadded_indices[@]} -eq 0 ]; then
-                temp_message "All saved servers are already mounted in KDE!"
+                temp_message "All saved servers are already mounted in your File Manager!"
                 continue
             fi
 
-            render_sub_dialog "ADD TO KDE NETWORK FOLDERS" "${C_BLUE}" "KDE_ADD" "${unadded_indices[@]}"
+            render_sub_dialog "ADD NETWORK BOOKMARK" "${C_BLUE}" "KDE_ADD" "${unadded_indices[@]}"
             get_server_selection "Enter server number to mount: " "${unadded_indices[@]}"
             srv_num="$SRV_NUM_CHOICE"
 
             if [[ "$srv_num" =~ ^[0-9]+$ ]] && [ "$srv_num" -ge 1 ] && [ "$srv_num" -le "${#unadded_indices[@]}" ]; then
                 chosen_idx="${unadded_indices[$((srv_num - 1))]}"
-                add_to_kde_network "${names[$chosen_idx]}" "${users[$chosen_idx]}" "${hosts[$chosen_idx]}" "${ports[$chosen_idx]}"
+                mount_network_folder "${names[$chosen_idx]}" "${users[$chosen_idx]}" "${hosts[$chosen_idx]}" "${ports[$chosen_idx]}"
             fi
             ;;
         [Rr])
             added_indices=()
             for i in "${!names[@]}"; do
-                if is_kde_folder_added "${names[$i]}"; then
+                if is_folder_mounted "${names[$i]}" "${users[$i]}" "${hosts[$i]}" "${ports[$i]}"; then
                     added_indices+=("$i")
                 fi
             done
 
             if [ ${#added_indices[@]} -eq 0 ]; then
-                temp_message "No servers are currently mounted in Dolphin."
+                temp_message "No servers are currently mounted/bookmarked."
                 continue
             fi
 
-            render_sub_dialog "UNMOUNT KDE NETWORK FOLDER" "${C_YELLOW}" "KDE_REM" "${added_indices[@]}"
+            render_sub_dialog "REMOVE NETWORK BOOKMARK" "${C_YELLOW}" "KDE_REM" "${added_indices[@]}"
             get_server_selection "Enter server number to unmount: " "${added_indices[@]}"
             srv_num="$SRV_NUM_CHOICE"
 
             if [[ "$srv_num" =~ ^[0-9]+$ ]] && [ "$srv_num" -ge 1 ] && [ "$srv_num" -le "${#added_indices[@]}" ]; then
                 chosen_idx="${added_indices[$((srv_num - 1))]}"
-                remove_from_kde_network "${names[$chosen_idx]}"
+                unmount_network_folder "${names[$chosen_idx]}" "${users[$chosen_idx]}" "${hosts[$chosen_idx]}" "${ports[$chosen_idx]}"
             fi
             ;;
         [Dd])
@@ -993,10 +1037,10 @@ while true; do
         toggle_*)
             idx="${choice#toggle_}"
             srv_name="${names[$idx]}"
-            if is_kde_folder_added "$srv_name"; then
-                remove_from_kde_network "$srv_name"
+            if is_folder_mounted "$srv_name" "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}"; then
+                unmount_network_folder "$srv_name" "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}"
             else
-                add_to_kde_network "$srv_name" "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}"
+                mount_network_folder "$srv_name" "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}"
             fi
             ;;
         *)
