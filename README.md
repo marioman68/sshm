@@ -23,7 +23,7 @@ A lightweight, mouse-friendly Terminal User Interface (TUI) for managing remote 
 
 * **Bash** (v4.0+)
 * **SSH Client** (`ssh`, `sftp`, `ssh-copy-id`)
-* **KDE Plasma / Dolphin:** Required specifically for the "Mount to Dolphin" GUI features (uses `~/.local/share/remoteview`). Other core SSH features will work on any Linux desktop environment.
+* **File Manager Integration:** KDE Dolphin or standard GTK-based file managers (Nautilus, Nemo, Thunar) for network bookmarking. Core SSH features work on any Linux desktop.
 
 ##  Installation
 
