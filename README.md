@@ -15,7 +15,7 @@ A lightweight, mouse-friendly Terminal User Interface (TUI) for managing remote 
   * Add, Edit, and Delete server profiles directly from the UI.
 * **Smart Installer:** Includes a version-aware `install.sh` that safely installs the script to your local path and prompts you for updates without breaking file permissions.
 
-## 🛠 Prerequisites
+##  Prerequisites
 
 * **Bash** (v4.0+)
 * **SSH Client** (`ssh`, `sftp`, `ssh-copy-id`)
@@ -49,7 +49,7 @@ sshm
 * **Mouse:** Click on a server to select it, then click an action on the right. 
 * **Quick Mount:** Click directly on the blue/open indicator dot next to a server's number to instantly mount/unmount it to Dolphin's Network Folders!
 
-## ⚙ Configuration
+##  Configuration
 
 `sshm` stores your server list securely in a simple plaintext file located at:
 `~/.ssh_servers`
