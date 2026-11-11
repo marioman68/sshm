@@ -1,25 +1,15 @@
 #!/usr/bin/env bash
 
-VERSION="2.0.2"
+# ==============================================================================
+# SSH Connection Hub (sshm)
+# Lightweight, mouse-friendly TUI for managing remote SSH servers
+# ==============================================================================
 
+VERSION="2.0.3"
 CONFIG_FILE="$HOME/.ssh_servers"
-KDE_REMOTEVIEW_DIR="$HOME/.local/share/remoteview"
-GTK_BOOKMARKS_FILE="$HOME/.config/gtk-3.0/bookmarks"
-touch "$CONFIG_FILE"
-
-# Detect Desktop Environment
-DE_TYPE="generic"
-case "${XDG_CURRENT_DESKTOP,,}" in
-    *kde*|*plasma*) DE_TYPE="kde" ;;
-    *) DE_TYPE="gtk" ;;
-esac
-
-if [ "$DE_TYPE" == "kde" ]; then
-    mkdir -p "$KDE_REMOTEVIEW_DIR"
-else
-    mkdir -p "$(dirname "$GTK_BOOKMARKS_FILE")"
-    touch "$GTK_BOOKMARKS_FILE"
-fi
+REMOTEVIEW_DIR="$HOME/.local/share/remoteview"
+GTK_BOOKMARKS="$HOME/.config/gtk-3.0/bookmarks"
+FILTER_TAG="ALL"
 
 # Color Palette Definitions
 C_RESET="\e[0m"
@@ -34,12 +24,10 @@ C_YELLOW="\e[38;5;220m"
 C_ORANGE="\e[38;5;208m"
 C_RED="\e[38;5;196m"
 C_MUTED="\e[38;5;244m"
-BG_HOVER="\e[48;5;236m"
-BG_DOT_HOVER="\e[48;5;239m"
+BG_HOVER="\e[48;5;236m"     # Standard row hover highlight
+BG_MNT_HOVER="\e[48;5;60m"  # Distinct purple-blue highlight for mount icon
 
-AUTO_REFRESH_SECONDS=10
 RESIZE_TRIGGERED=0
-ACTIVE_FILTER="ALL"
 
 enable_mouse() {
     printf "\e[?1003h\e[?1006h\e[?25l\e[?7l"
@@ -47,6 +35,7 @@ enable_mouse() {
 
 disable_mouse() {
     printf "\e[?1003l\e[?1006l\e[?25h\e[?7h"
+    stty echo 2>/dev/null
     sleep 0.05
     local garbage
     while read -t 0.05 -rsn1 garbage; do : ; done
@@ -57,7 +46,7 @@ on_resize() {
 }
 
 trap 'on_resize' WINCH
-trap 'disable_mouse; echo ""; exit' EXIT INT TERM
+trap 'disable_mouse; clear; echo ""; exit' EXIT INT TERM
 
 repeat_char() {
     local char="$1"
@@ -69,6 +58,12 @@ repeat_char() {
     echo -n "$str"
 }
 
+expand_path() {
+    local p="$1"
+    p="${p/#\~/$HOME}"
+    echo "${p%/}"
+}
+
 calc_geometry() {
     TERM_COLS=$(tput cols)
     TERM_LINES=$(tput lines)
@@ -77,10 +72,8 @@ calc_geometry() {
     [ "$TERM_LINES" -lt 24 ] && TERM_LINES=24
 
     TOTAL_W=$(( TERM_COLS - 2 ))
-
     LEFT_START=1
     LEFT_END=$(( TOTAL_W / 2 ))
-    
     RIGHT_START=$(( LEFT_END + 2 ))
     RIGHT_END=$TOTAL_W
 
@@ -88,7 +81,7 @@ calc_geometry() {
     RIGHT_INNER_W=$(( RIGHT_END - RIGHT_START - 1 ))
 
     CONTENT_H=$(( TERM_LINES - 9 ))
-    [ "$CONTENT_H" -lt 10 ] && CONTENT_H=10
+    [ "$CONTENT_H" -lt 11 ] && CONTENT_H=11
 
     ROW_TOP=1
     ROW_TWIN_TOP=4
@@ -113,7 +106,7 @@ draw_box() {
     local width=$(( ce - cs - 1 ))
     local hline
     hline=$(repeat_char "─" "$width")
-    
+
     printf "\e[%d;%dH${C_BORDER}╭%s╮${C_RESET}" "$rs" "$cs" "$hline"
     for ((r=rs+1; r<re; r++)); do
         printf "\e[%d;%dH${C_BORDER}│\e[%d;%dH│${C_RESET}" "$r" "$cs" "$r" "$ce"
@@ -134,7 +127,7 @@ draw_separator() {
 draw_wireframe() {
     clear
     calc_geometry
-    
+
     draw_box "$ROW_TOP" "$((ROW_TOP + 2))" 1 "$TOTAL_W"
     draw_box "$ROW_TWIN_TOP" "$ROW_TWIN_BOTTOM" "$LEFT_START" "$LEFT_END"
     draw_box "$ROW_TWIN_TOP" "$ROW_TWIN_BOTTOM" "$RIGHT_START" "$RIGHT_END"
@@ -144,437 +137,18 @@ draw_wireframe() {
 }
 
 draw_left_legend() {
-    printf "\e[%d;%dH   ${C_BLUE}●${C_RESET} Bookmarked   ${C_GREEN}●${C_RESET} Active   Filter: ${C_YELLOW}[%s]${C_RESET}" "$ROW_LEGEND_TEXT_1" "$(( LEFT_START + 1 ))" "$ACTIVE_FILTER"
-    printf "\e[%d;%dH   ${C_BLUE}○${C_RESET} Unbookmarked ${C_RED}○${C_RESET} Offline  Press [F] to filter tags" "$ROW_LEGEND_TEXT_2" "$(( LEFT_START + 1 ))"
+    printf "\e[%d;%dH   ${C_GREEN}●${C_RESET} Online   ${C_RED}○${C_RESET} Offline   ${C_BLUE}◆${C_RESET} Mounted   ${C_MUTED}◇${C_RESET} Unmounted" "$ROW_LEGEND_TEXT_1" "$(( LEFT_START + 1 ))"
+    printf "\e[%d;%dH   Click ${C_BLUE}◆${C_RESET} /${C_MUTED}◇${C_RESET}  to toggle mount   Press [f] to filter tags" "$ROW_LEGEND_TEXT_2" "$(( LEFT_START + 1 ))"
 }
 
 temp_message() {
     prompt_in_dialog "$1"
-    ( sleep 1.2 ) &
+    ( sleep 1.5 ) &
     local pid=$!
     local garbage
     while kill -0 $pid 2>/dev/null; do
         read -t 0.1 -rsn1 garbage
     done
-}
-
-ensure_ssh_key() {
-    if [ ! -f "$HOME/.ssh/id_ed25519.pub" ] && [ ! -f "$HOME/.ssh/id_rsa.pub" ]; then
-        echo -e "\n${C_YELLOW}[ WARN ] No SSH key detected in ~/.ssh/${C_RESET}"
-        read -rp "Would you like to generate an ED25519 key now? (y/N): " gen_key
-        if [[ "$gen_key" =~ ^[Yy]$ ]]; then
-            ssh-keygen -t ed25519 -C "$USER@$(hostname)"
-        fi
-    fi
-}
-
-send_ssh_key() {
-    local target="$1"
-    local port="$2"
-    local key_path="$3"
-
-    clear
-    ensure_ssh_key
-
-    echo -e "\n${C_GREEN}[ INFO ] Transferring SSH public key to ${C_BOLD}${target}${C_RESET}${C_GREEN} (port ${port})...${C_RESET}"
-    if [ -n "$key_path" ] && [ "$key_path" != "-" ] && [ -f "$key_path" ]; then
-        ssh-copy-id -i "$key_path.pub" -p "$port" "$target"
-    else
-        ssh-copy-id -p "$port" "$target"
-    fi
-
-    echo ""
-    read -rp "Press Enter to return to the hub..."
-}
-
-wake_on_lan_node() {
-    local mac="$1"
-    if [ -z "$mac" ] || [ "$mac" == "-" ]; then
-        temp_message "[ FAIL ] No MAC address saved for this node."
-        return
-    fi
-    if command -v wakeonlan >/dev/null 2>&1; then
-        wakeonlan "$mac" &>/dev/null
-        temp_message "[  OK  ] Sent WOL magic packet to MAC: $mac"
-    elif command -v ether-wake >/dev/null 2>&1; then
-        sudo ether-wake -i eth0 "$mac" &>/dev/null
-        temp_message "[  OK  ] Sent ether-wake packet to MAC: $mac"
-    else
-        temp_message "[ FAIL ] 'wakeonlan' package is not installed."
-    fi
-}
-
-create_port_tunnel() {
-    local user="$1"
-    local host="$2"
-    local port="$3"
-    local key_path="$4"
-
-    disable_mouse
-    render_sub_dialog "PORT TUNNEL (LPORT:RPORT)" "${C_PURPLE}" "ADD"
-    prompt_in_dialog "Enter tunnel (e.g., 8080:localhost:9000): "
-    read -r tunnel_spec
-    [[ -z "$tunnel_spec" || "$tunnel_spec" =~ ^[BbQq]$ ]] && return
-
-    local identity_arg=""
-    [ -n "$key_path" ] && [ "$key_path" != "-" ] && [ -f "$key_path" ] && identity_arg="-i $key_path"
-
-    nohup ssh -N -p "$port" $identity_arg -L "$tunnel_spec" "${user}@${host}" >/dev/null 2>&1 &
-    temp_message "[  OK  ] Background SSH tunnel established (${tunnel_spec})."
-}
-
-is_folder_mounted() {
-    local name="$1"
-    local user="$2"
-    local host="$3"
-    local port="$4"
-    local home_path="/home/$user"
-    [ "$user" == "root" ] && home_path="/root"
-    local url="sftp://$user@$host:$port$home_path"
-
-    if [ "$DE_TYPE" == "kde" ]; then
-        local safe_name=$(echo "$name" | tr ' /' '__')
-        [ -f "$KDE_REMOTEVIEW_DIR/${safe_name}.desktop" ]
-    else
-        grep -q -F "$url" "$GTK_BOOKMARKS_FILE" 2>/dev/null
-    fi
-}
-
-mount_network_folder() {
-    local name="$1"
-    local user="$2"
-    local host="$3"
-    local port="$4"
-    local home_path="/home/$user"
-    [ "$user" == "root" ] && home_path="/root"
-    local url="sftp://$user@$host:$port$home_path"
-
-    if [ "$DE_TYPE" == "kde" ]; then
-        local safe_name=$(echo "$name" | tr ' /' '__')
-        local desktop_path="$KDE_REMOTEVIEW_DIR/${safe_name}.desktop"
-
-        cat <<EOF > "$desktop_path"
-[Desktop Entry]
-Icon=folder-remote
-Name=$name
-Type=Link
-URL=$url
-EOF
-    else
-        sed -i "\|${url}|d" "$GTK_BOOKMARKS_FILE" 2>/dev/null
-        echo "$url $name" >> "$GTK_BOOKMARKS_FILE"
-    fi
-
-    temp_message "[  OK  ] Added ${name} to Network Bookmarks."
-}
-
-unmount_network_folder() {
-    local name="$1"
-    local user="$2"
-    local host="$3"
-    local port="$4"
-    local home_path="/home/$user"
-    [ "$user" == "root" ] && home_path="/root"
-    local url="sftp://$user@$host:$port$home_path"
-
-    if [ "$DE_TYPE" == "kde" ]; then
-        local safe_name=$(echo "$name" | tr ' /' '__')
-        local desktop_path="$KDE_REMOTEVIEW_DIR/${safe_name}.desktop"
-        if [ -f "$desktop_path" ]; then
-            rm -f "$desktop_path"
-            temp_message "[  OK  ] Removed '${name}' from Network Bookmarks."
-        else
-            temp_message "[ INFO ] Notice: '${name}' was not mounted."
-        fi
-    else
-        if grep -q -F "$url" "$GTK_BOOKMARKS_FILE" 2>/dev/null; then
-            sed -i "\|${url}|d" "$GTK_BOOKMARKS_FILE" 2>/dev/null
-            temp_message "[  OK  ] Removed '${name}' from Network Bookmarks."
-        else
-            temp_message "[ INFO ] Notice: '${name}' was not bookmarked."
-        fi
-    fi
-}
-
-open_file_manager() {
-    local name="$1"
-    local user="$2"
-    local host="$3"
-    local port="$4"
-    local home_path="/home/$user"
-    [ "$user" == "root" ] && home_path="/root"
-
-    temp_message "[ INFO ] Launching File Manager for ${name}..."
-    if command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "sftp://$user@$host:$port$home_path" &>/dev/null &
-    elif [ "$DE_TYPE" == "kde" ]; then
-        dolphin "sftp://$user@$host:$port$home_path" &>/dev/null &
-    else
-        nautilus "sftp://$user@$host:$port$home_path" &>/dev/null &
-    fi
-}
-
-open_sftp_shell() {
-    local user="$1"
-    local host="$2"
-    local port="$3"
-    local key_path="$4"
-
-    clear
-    echo -e "${C_BOLD}${C_BLUE}Connecting via SFTP to ${C_YELLOW}${user}@${host}:${port}${C_RESET}...\n"
-    if [ -n "$key_path" ] && [ "$key_path" != "-" ] && [ -f "$key_path" ]; then
-        sftp -i "$key_path" -P "$port" "${user}@${host}"
-    else
-        sftp -P "$port" "${user}@${host}"
-    fi
-
-    echo -e "\n${C_ORANGE}[ INFO ] SFTP session ended. Returning to hub...${C_RESET}"
-    sleep 1.2
-}
-
-delete_server() {
-    local idx="$1"
-    local srv_name="${names[$idx]}"
-    local srv_user="${users[$idx]}"
-    local srv_host="${hosts[$idx]}"
-    local srv_port="${ports[$idx]}"
-
-    local line_num=$(( idx + 1 ))
-    sed -i "${line_num}d" "$CONFIG_FILE"
-    unmount_network_folder "$srv_name" "$srv_user" "$srv_host" "$srv_port" >/dev/null 2>&1
-
-    temp_message "[  OK  ] Server '${srv_name}' permanently deleted."
-}
-
-render_left_pane() {
-    local row="$1"
-    local is_hover="$2"
-    local mouse_x="${3:-0}"
-    local idx=$(( row - ROW_TWIN_START ))
-
-    local bg=""
-    local dot_bg=""
-    if [ "$is_hover" -eq 1 ] && [ "$idx" -ge 0 ] && [ "$idx" -lt "${#filtered_indices[@]}" ]; then
-        bg="${BG_HOVER}"
-        dot_bg="${BG_HOVER}"
-        if [ "$mouse_x" -ge 6 ] && [ "$mouse_x" -le 8 ]; then
-            dot_bg="${BG_DOT_HOVER}"
-        fi
-    fi
-
-    printf "\e[%d;%dH" "$row" "$(( LEFT_START + 1 ))"
-    local count=${#filtered_indices[@]}
-    if [ "$idx" -ge 0 ] && [ "$idx" -lt "$count" ]; then
-        local orig_idx="${filtered_indices[$idx]}"
-        local num=$(( idx + 1 ))
-        local st_dot="${status_dots[$orig_idx]}"
-        local k_ind="${mount_status[$orig_idx]}"
-        local latency="${latencies[$orig_idx]}"
-
-        local avail=$(( LEFT_INNER_W - 27 ))
-        [ "$avail" -lt 10 ] && avail=10
-
-        local name_w=$(( avail * 40 / 100 ))
-        local conn_w=$(( avail - name_w ))
-
-        local sname="${names[$orig_idx]}"
-        [ ${#sname} -gt "$name_w" ] && sname="${sname:0:$((name_w - 1))}…"
-
-        local conn="${users[$orig_idx]}@${hosts[$orig_idx]}:${ports[$orig_idx]}"
-        [ ${#conn} -gt "$conn_w" ] && conn="${conn:0:$((conn_w - 1))}…"
-
-        local fill_w=$(( LEFT_INNER_W - 27 - name_w - conn_w ))
-        [ "$fill_w" -lt 0 ] && fill_w=0
-
-        printf "${bg}  %b${bg} ${dot_bg} %b${dot_bg} ${bg} ${C_GREEN}[%2d]${C_RESET}${bg}   ${C_BOLD}%-*s${C_RESET}${bg}  ${C_MUTED}%-*s${C_RESET}${bg} ${C_CYAN}%5s${C_RESET}${bg}%*s${C_RESET}" \
-            "$st_dot" "$k_ind" "$num" "$name_w" "$sname" "$conn_w" "$conn" "$latency" "$fill_w" ""
-    else
-        printf "${bg}%*s${C_RESET}" "$LEFT_INNER_W" ""
-    fi
-    printf "\e[%d;%dH${C_BORDER}│${C_RESET}" "$row" "$LEFT_END"
-}
-
-render_right_pane() {
-    local row="$1"
-    local is_hover="$2"
-    local act_idx=$(( row - ROW_TWIN_START ))
-
-    local bg=""
-    [ "$is_hover" -eq 1 ] && [ "$act_idx" -ge 0 ] && [ "$act_idx" -le 11 ] && bg="${BG_HOVER}"
-    
-    local col_start=$(( RIGHT_START + 1 ))
-    printf "\e[%d;%dH" "$row" "$col_start"
-
-    if [ "$act_idx" -ge 0 ] && [ "$act_idx" -le 11 ]; then
-        local p1=""
-        local p2=""
-        local p3=""
-        local raw_text=""
-        
-        case "$act_idx" in
-            0) p1="${C_CYAN}[a]${C_RESET}${bg}"; p2="   Add new server" ; raw_text="  [a]   Add new server" ;;
-            1) p1="${C_PURPLE}[k]${C_RESET}${bg}"; p2="   Push SSH key "; p3="${C_MUTED}(copy-id)${C_RESET}${bg}"; raw_text="  [k]   Push SSH key (copy-id)" ;;
-            2) p1="${C_CYAN}[o]${C_RESET}${bg}"; p2="   Open File Manager "; p3="${C_MUTED}(GUI)${C_RESET}${bg}"; raw_text="  [o]   Open File Manager (GUI)" ;;
-            3) p1="${C_BLUE}[s]${C_RESET}${bg}"; p2="   SFTP Shell "; p3="${C_MUTED}(CLI)${C_RESET}${bg}"; raw_text="  [s]   SFTP Shell (CLI)" ;;
-            4) p1="${C_PURPLE}[t]${C_RESET}${bg}"; p2="   Port Tunneling "; p3="${C_MUTED}(-L)${C_RESET}${bg}"; raw_text="  [t]   Port Tunneling (-L)" ;;
-            5) p1="${C_YELLOW}[w]${C_RESET}${bg}"; p2="   Wake-on-LAN "; p3="${C_MUTED}(WoL)${C_RESET}${bg}"; raw_text="  [w]   Wake-on-LAN (WoL)" ;;
-            6) p1="${C_PURPLE}[e]${C_RESET}${bg}"; p2="   Edit profile"; raw_text="  [e]   Edit profile" ;;
-            7) p1="${C_BLUE}[f]${C_RESET}${bg}"; p2="   Add Network Bookmark"; raw_text="  [f]   Add Network Bookmark" ;;
-            8) p1="${C_YELLOW}[r]${C_RESET}${bg}"; p2="   Remove Network Bookmark"; raw_text="  [r]   Remove Network Bookmark" ;;
-            9) p1="${C_ORANGE}[d]${C_RESET}${bg}"; p2="   Delete server"; raw_text="  [d]   Delete server" ;;
-           10) p1="${C_GREEN}[u]${C_RESET}${bg}"; p2="   Refresh status "; p3="${C_MUTED}(10s)${C_RESET}${bg}"; raw_text="  [u]   Refresh status (10s)" ;;
-           11) p1="${C_RED}[q]${C_RESET}${bg}"; p2="   Exit Console"; raw_text="  [q]   Exit Console" ;;
-        esac
-
-        local text_len=${#raw_text}
-        local pad=$(( RIGHT_INNER_W - text_len ))
-        [ "$pad" -lt 0 ] && pad=0
-
-        printf "${bg}  %b%b%b${bg}%*s${C_RESET}" "$p1" "$p2" "$p3" "$pad" ""
-    else
-        printf "${bg}%*s${C_RESET}" "$RIGHT_INNER_W" ""
-    fi
-    printf "\e[%d;%dH${C_BORDER}│${C_RESET}" "$row" "$RIGHT_END"
-}
-
-render_sub_left_pane() {
-    local row="$1"
-    local is_hover="$2"
-    local mouse_x="$3"
-    shift 3
-    local filtered_indices=("$@")
-
-    local idx=$(( row - ROW_TWIN_START ))
-    local count=${#filtered_indices[@]}
-
-    local bg=""
-    local dot_bg=""
-    if [ "$is_hover" -eq 1 ] && [ "$idx" -ge 0 ] && [ "$idx" -lt "$count" ]; then
-        bg="${BG_HOVER}"
-        dot_bg="${BG_HOVER}"
-        if [ "$mouse_x" -ge 6 ] && [ "$mouse_x" -le 8 ]; then
-            dot_bg="${BG_DOT_HOVER}"
-        fi
-    fi
-
-    printf "\e[%d;%dH" "$row" "$(( LEFT_START + 1 ))"
-    if [ "$idx" -ge 0 ] && [ "$idx" -lt "$count" ]; then
-        local orig_idx="${filtered_indices[$idx]}"
-        local num=$(( idx + 1 ))
-        local st_dot="${status_dots[$orig_idx]}"
-        local k_ind="${mount_status[$orig_idx]}"
-        local latency="${latencies[$orig_idx]}"
-
-        local avail=$(( LEFT_INNER_W - 27 ))
-        [ "$avail" -lt 10 ] && avail=10
-        local name_w=$(( avail * 40 / 100 ))
-        local conn_w=$(( avail - name_w ))
-
-        local sname="${names[$orig_idx]}"
-        [ ${#sname} -gt "$name_w" ] && sname="${sname:0:$((name_w - 1))}…"
-
-        local conn="${users[$orig_idx]}@${hosts[$orig_idx]}:${ports[$orig_idx]}"
-        [ ${#conn} -gt "$conn_w" ] && conn="${conn:0:$((conn_w - 1))}…"
-
-        local fill_w=$(( LEFT_INNER_W - 27 - name_w - conn_w ))
-        [ "$fill_w" -lt 0 ] && fill_w=0
-
-        printf "${bg}  %b${bg} ${dot_bg} %b${dot_bg} ${bg} ${C_GREEN}[%2d]${C_RESET}${bg}   ${C_BOLD}%-*s${C_RESET}${bg}  ${C_MUTED}%-*s${C_RESET}${bg} ${C_CYAN}%5s${C_RESET}${bg}%*s${C_RESET}" \
-            "$st_dot" "$k_ind" "$num" "$name_w" "$sname" "$conn_w" "$conn" "$latency" "$fill_w" ""
-    else
-        printf "${bg}%*s${C_RESET}" "$LEFT_INNER_W" ""
-    fi
-    printf "\e[%d;%dH${C_BORDER}│${C_RESET}" "$row" "$LEFT_END"
-}
-
-render_sub_dialog() {
-    local title="$1"
-    local title_color="$2"
-    local action_type="$3"
-    shift 3
-    local filtered_indices=("$@")
-
-    draw_wireframe
-
-    printf "\e[2;3H${title_color}${C_BOLD}◆ %s${C_RESET}" "$title"
-    printf "\e[2;%dH${C_MUTED}ESC/'b': Cancel${C_RESET}" "$(( TOTAL_W - 17 ))"
-    printf "\e[2;%dH${C_BORDER}│${C_RESET}" "$TOTAL_W"
-
-    printf "\e[%d;4H${C_CYAN}${C_BOLD} TARGET SERVERS ${C_RESET}" "$ROW_TWIN_TOP"
-    printf "\e[%d;%dH${title_color}${C_BOLD} EXECUTION PANEL ${C_RESET}" "$ROW_TWIN_TOP" "$(( RIGHT_START + 3 ))"
-
-    local count=${#filtered_indices[@]}
-    for ((r=0; r<CONTENT_H; r++)); do
-        local line_num=$(( r + ROW_TWIN_START ))
-        if [ "$line_num" -lt "$ROW_LEGEND_SEP" ]; then
-            render_sub_left_pane "$line_num" 0 0 "${filtered_indices[@]}"
-        fi
-
-        printf "\e[%d;%dH%*s" "$line_num" "$(( RIGHT_START + 1 ))" "$RIGHT_INNER_W" ""
-        printf "\e[%d;%dH" "$line_num" "$(( RIGHT_START + 2 ))"
-        case "$action_type" in
-            "ADD")
-                case "$r" in
-                    1) printf "   ${C_CYAN}Create New SSH Profile${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Fill out the prompt below.${C_RESET}" ;;
-                    5) printf "   ${C_YELLOW}Leave blank or 'b' to cancel.${C_RESET}" ;;
-                esac
-                ;;
-            "KEY")
-                case "$r" in
-                    1) printf "   ${C_PURPLE}Deploy Authentication Key${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Transfers ~/.ssh/id_*.pub${C_RESET}" ;;
-                    5) printf "   ${C_GREEN}Select a server number below.${C_RESET}" ;;
-                esac
-                ;;
-            "DOLPHIN")
-                case "$r" in
-                    1) printf "   ${C_CYAN}Launch SFTP GUI Session${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Opens File Manager to home dir.${C_RESET}" ;;
-                    5) printf "   ${C_GREEN}Select a server number below.${C_RESET}" ;;
-                esac
-                ;;
-            "SFTP")
-                case "$r" in
-                    1) printf "   ${C_BLUE}Launch Interactive SFTP${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Opens a terminal FTP session.${C_RESET}" ;;
-                    5) printf "   ${C_GREEN}Select a server number below.${C_RESET}" ;;
-                esac
-                ;;
-            "EDIT")
-                case "$r" in
-                    1) printf "   ${C_PURPLE}Modify Server Profile${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Update Host, User, Port, Tag, Key.${C_RESET}" ;;
-                    5) printf "   ${C_GREEN}Select a server number below.${C_RESET}" ;;
-                esac
-                ;;
-            "KDE_ADD")
-                case "$r" in
-                    1) printf "   ${C_BLUE}Mount Network Bookmark${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Creates File Manager link.${C_RESET}" ;;
-                    5) printf "   ${C_GREEN}Select a server number below.${C_RESET}" ;;
-                esac
-                ;;
-            "KDE_REM")
-                case "$r" in
-                    1) printf "   ${C_YELLOW}Unmount Network Bookmark${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Removes File Manager link.${C_RESET}" ;;
-                    5) printf "   ${C_YELLOW}Select mounted server below.${C_RESET}" ;;
-                esac
-                ;;
-            "DEL")
-                case "$r" in
-                    1) printf "   ${C_RED}Delete Server Profile${C_RESET}" ;;
-                    3) printf "   ${C_MUTED}Removes profile and network link.${C_RESET}" ;;
-                    5) printf "   ${C_RED}Select a server number below.${C_RESET}" ;;
-                esac
-                ;;
-        esac
-        printf "\e[%d;%dH${C_BORDER}│${C_RESET}" "$line_num" "$RIGHT_END"
-    done
-    
-    draw_left_legend
-    printf "\e[%d;4H${C_YELLOW}${C_BOLD} PROMPT DIALOGUE ${C_RESET}" "$ROW_PROMPT_TOP"
 }
 
 prompt_in_dialog() {
@@ -587,343 +161,577 @@ prompt_in_dialog() {
     printf "\e[%d;3H%s\e[%d;%dH" "$ROW_PROMPT_INPUT" "$prompt_str" "$ROW_PROMPT_INPUT" "$input_col"
 }
 
-SRV_NUM_CHOICE=""
-get_server_selection() {
-    local prompt_str="$1"
-    shift
-    local filtered_indices=("$@")
-    local count=${#filtered_indices[@]}
-    
-    SRV_NUM_CHOICE=""
-    local active_hover_row=0
-    local active_hover_col=0
-    
-    prompt_in_dialog "$prompt_str"
-    local input_col=$(( 3 + ${#prompt_str} ))
-    
-    enable_mouse
-    
-    while true; do
-        char=""
-        if IFS= read -rsn1 -t 1 char; then
-            if [[ "$char" == $'\e' ]]; then
-                read -rsn2 -t 0.05 seq
-                if [[ "$seq" == "[<" ]]; then
-                    mouse_event=""
-                    while IFS= read -rsn1 mchar; do
-                        mouse_event+="$mchar"
-                        [[ "$mchar" == "M" || "$mchar" == "m" ]] && break
-                    done
-                    
-                    if [[ "$mouse_event" =~ ^([0-9]+)\;([0-9]+)\;([0-9]+)([Mm])$ ]]; then
-                        btn="${BASH_REMATCH[1]}"
-                        cx="${BASH_REMATCH[2]}"
-                        cy="${BASH_REMATCH[3]}"
-                        action="${BASH_REMATCH[4]}"
-                        
-                        side=""
-                        if [ "$cy" -ge "$ROW_TWIN_START" ] && [ "$cy" -lt "$ROW_LEGEND_SEP" ]; then
-                            if [ "$cx" -ge 2 ] && [ "$cx" -le "$LEFT_END" ]; then
-                                side="L"
-                            fi
-                        fi
-                        
-                        if [ "$side" == "L" ]; then
-                            redraw=0
-                            if [ "$cy" -ne "$active_hover_row" ]; then
-                                redraw=1
-                            else
-                                old_in_dot=0
-                                new_in_dot=0
-                                [ "$active_hover_col" -ge 6 ] && [ "$active_hover_col" -le 8 ] && old_in_dot=1
-                                [ "$cx" -ge 6 ] && [ "$cx" -le 8 ] && new_in_dot=1
-                                [ "$old_in_dot" -ne "$new_in_dot" ] && redraw=1
-                            fi
-                            
-                            if [ "$redraw" -eq 1 ]; then
-                                [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_sub_left_pane "$active_hover_row" 0 0 "${filtered_indices[@]}"
-                                render_sub_left_pane "$cy" 1 "$cx" "${filtered_indices[@]}"
-                                active_hover_row="$cy"
-                                active_hover_col="$cx"
-                                printf "\e[%d;%dH" "$ROW_PROMPT_INPUT" "$input_col"
-                            else
-                                active_hover_col="$cx"
-                            fi
-                        else
-                            if [ "$active_hover_row" -ge "$ROW_TWIN_START" ]; then
-                                render_sub_left_pane "$active_hover_row" 0 0 "${filtered_indices[@]}"
-                                active_hover_row=0
-                                active_hover_col=0
-                                printf "\e[%d;%dH" "$ROW_PROMPT_INPUT" "$input_col"
-                            fi
-                        fi
-                        
-                        if [ "$btn" -eq 0 ] && [ "$action" == "M" ] && [ "$side" == "L" ]; then
-                            clicked_idx=$(( cy - ROW_TWIN_START ))
-                            if [ "$clicked_idx" -lt "$count" ]; then
-                                SRV_NUM_CHOICE=$(( clicked_idx + 1 ))
-                                break
-                            fi
-                        fi
-                    fi
-                elif [[ "$seq" == "" ]]; then
-                    SRV_NUM_CHOICE="b"
-                    break
-                fi
-            elif [[ "$char" =~ ^[0-9]$ ]]; then
-                disable_mouse
-                printf "\e[%d;3H" "$ROW_PROMPT_INPUT"
-                read -e -p "$prompt_str" -i "$char" -r SRV_NUM_CHOICE
-                printf "\e[%d;%dH${C_BORDER}│${C_RESET}" "$ROW_PROMPT_INPUT" "$TOTAL_W"
-                break
-            elif [[ "$char" =~ ^[BbQq]$ ]]; then
-                SRV_NUM_CHOICE="b"
-                break
-            elif [[ "$char" == $'\n' || "$char" == $'\r' ]]; then
-                SRV_NUM_CHOICE="b"
-                break
-            fi
-        fi
-    done
-    disable_mouse
+# Universal Desktop Environment Mount Check
+is_mounted() {
+    local name="$1"
+    local user="$2"
+    local host="$3"
+    local port="$4"
+    local safe_name="${name// /_}"
+
+    if [[ "$XDG_CURRENT_DESKTOP" == *"KDE"* ]] || [ -d "$REMOTEVIEW_DIR" ]; then
+        [ -f "$REMOTEVIEW_DIR/${safe_name}.desktop" ] && return 0
+    fi
+    if [ -f "$GTK_BOOKMARKS" ]; then
+        grep -q "sftp://${user}@${host}:${port}" "$GTK_BOOKMARKS" 2>/dev/null && return 0
+    fi
+    return 1
 }
 
-add_new_server_flow() {
+toggle_mount() {
+    local idx="$1"
+    local name="${srv_names[$idx]}"
+    local user="${srv_users[$idx]}"
+    local host="${srv_hosts[$idx]}"
+    local port="${srv_ports[$idx]}"
+    local safe_name="${name// /_}"
+
+    if is_mounted "$name" "$user" "$host" "$port"; then
+        rm -f "$REMOTEVIEW_DIR/${safe_name}.desktop" 2>/dev/null
+        if [ -f "$GTK_BOOKMARKS" ]; then
+            sed -i "\|sftp://${user}@${host}:${port}|d" "$GTK_BOOKMARKS" 2>/dev/null
+        fi
+        temp_message "[  OK  ] Unmounted '$name' from Network Folders."
+    else
+        if [[ "$XDG_CURRENT_DESKTOP" == *"KDE"* ]] || command -v dolphin >/dev/null 2>&1; then
+            mkdir -p "$REMOTEVIEW_DIR"
+            cat <<EOF > "$REMOTEVIEW_DIR/${safe_name}.desktop"
+[Desktop Entry]
+Icon=folder-remote
+Name=$name
+Type=Link
+URL=sftp://${user}@${host}:${port}/
+EOF
+        else
+            mkdir -p "$(dirname "$GTK_BOOKMARKS")"
+            echo "sftp://${user}@${host}:${port}/ $name" >> "$GTK_BOOKMARKS"
+        fi
+        temp_message "[  OK  ] Mounted '$name' to Network Folders!"
+    fi
+}
+
+measure_latency() {
+    local host="$1"
+    local port="$2"
+    local rtt=""
+
+    rtt=$(ping -c 1 -W 1 "$host" 2>/dev/null | awk -F'time=' '/time=/ {split($2, a, " "); print int(a[1]+0.5)"ms"}')
+    if [ -n "$rtt" ]; then
+        echo "ONLINE|$rtt"
+        return
+    fi
+
+    if timeout 1 bash -c "</dev/tcp/$host/$port" 2>/dev/null; then
+        echo "ONLINE|TCP"
+    else
+        echo "OFFLINE|--"
+    fi
+}
+
+load_servers() {
+    touch "$CONFIG_FILE"
+    all_lines=()
+    unique_tags=("ALL")
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        all_lines+=("$line")
+        IFS='|' read -r _ _ _ _ tag _ _ <<< "$line"
+        if [ -n "$tag" ]; then
+            local found=0
+            for t in "${unique_tags[@]}"; do
+                [ "$t" == "$tag" ] && found=1 && break
+            done
+            [ "$found" -eq 0 ] && unique_tags+=("$tag")
+        fi
+    done < "$CONFIG_FILE"
+
+    srv_real_idx=()
+    srv_names=()
+    srv_users=()
+    srv_hosts=()
+    srv_ports=()
+    srv_tags=()
+    srv_macs=()
+    srv_keys=()
+    srv_online=()
+    srv_latencies=()
+    srv_mounted=()
+
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    local disp_i=0
+    for i in "${!all_lines[@]}"; do
+        IFS='|' read -r name user host port tag mac key <<< "${all_lines[$i]}"
+        [ -z "$port" ] && port=22
+
+        if [ "$FILTER_TAG" != "ALL" ] && [ "$tag" != "$FILTER_TAG" ]; then
+            continue
+        fi
+
+        srv_real_idx+=("$i")
+        srv_names+=("$name")
+        srv_users+=("$user")
+        srv_hosts+=("$host")
+        srv_ports+=("$port")
+        srv_tags+=("$tag")
+        srv_macs+=("$mac")
+        srv_keys+=("$key")
+
+        if is_mounted "$name" "$user" "$host" "$port"; then
+            srv_mounted+=("1")
+        else
+            srv_mounted+=("0")
+        fi
+
+        (
+            measure_latency "$host" "$port" > "$tmp_dir/$disp_i"
+        ) &
+
+        disp_i=$(( disp_i + 1 ))
+    done
+
+    wait
+
+    server_count=$disp_i
+    for ((j=0; j<server_count; j++)); do
+        if [ -f "$tmp_dir/$j" ]; then
+            IFS='|' read -r st lat < "$tmp_dir/$j"
+            srv_online+=("$st")
+            srv_latencies+=("$lat")
+        else
+            srv_online+=("OFFLINE")
+            srv_latencies+=("--")
+        fi
+    done
+
+    rm -rf "$tmp_dir"
+}
+
+# hover_mode: 0 = none, 1 = standard row hover, 2 = mount icon hover
+render_left_pane() {
+    local row="$1"
+    local hover_mode="$2"
+    local idx=$(( row - ROW_TWIN_START ))
+
+    local bg=""
+    local m_bg=""
+    if [ "$idx" -ge 0 ] && [ "$idx" -lt "$server_count" ]; then
+        if [ "$hover_mode" -eq 1 ]; then
+            bg="${BG_HOVER}"
+            m_bg="${BG_HOVER}"
+        elif [ "$hover_mode" -eq 2 ]; then
+            bg="${BG_HOVER}"
+            m_bg="${BG_MNT_HOVER}"
+        fi
+    fi
+
+    printf "\e[%d;%dH" "$row" "$(( LEFT_START + 1 ))"
+    if [ "$idx" -ge 0 ] && [ "$idx" -lt "$server_count" ]; then
+        local num=$(( idx + 1 ))
+        local name="${srv_names[$idx]}"
+        local tag="${srv_tags[$idx]}"
+        local st="${srv_online[$idx]}"
+        local lat="${srv_latencies[$idx]}"
+        local mnt="${srv_mounted[$idx]}"
+
+        # Status dot on the left (keeps row bg intact)
+        local s_icon="${C_RED}○${C_RESET}${bg}"
+        local lat_str
+        lat_str=$(printf "${C_MUTED}%6s${C_RESET}${bg}" "--")
+        if [ "$st" == "ONLINE" ]; then
+            s_icon="${C_GREEN}●${C_RESET}${bg}"
+            lat_str=$(printf "${C_CYAN}%6s${C_RESET}${bg}" "$lat")
+        fi
+
+        # Mount diamond after status dot (gets distinct m_bg when hovered directly)
+        local m_icon="${m_bg} ${C_MUTED}◇${C_RESET}${m_bg} ${C_RESET}${bg}"
+        if [ "$mnt" -eq 1 ]; then
+            m_icon="${m_bg} ${C_BLUE}◆${C_RESET}${m_bg} ${C_RESET}${bg}"
+        fi
+
+        local disp_name="$name"
+        [ -n "$tag" ] && disp_name="$name [$tag]"
+
+        local avail=$(( LEFT_INNER_W - 22 ))
+        [ "$avail" -lt 10 ] && avail=10
+        [ ${#disp_name} -gt "$avail" ] && disp_name="${disp_name:0:$((avail - 1))}…"
+
+        local fill_w=$(( LEFT_INNER_W - 21 - ${#disp_name} ))
+        [ "$fill_w" -lt 0 ] && fill_w=0
+
+        printf "${bg}  %b%b${C_GREEN}[%2d]${C_RESET}${bg}  ${C_BOLD}%s${C_RESET}${bg}%*s%b ${C_RESET}" \
+            "$s_icon" "$m_icon" "$num" "$disp_name" "$fill_w" "" "$lat_str"
+    else
+        printf "${bg}%*s${C_RESET}" "$LEFT_INNER_W" ""
+    fi
+    printf "\e[%d;%dH${C_BORDER}│${C_RESET}" "$row" "$LEFT_END"
+}
+
+render_right_pane() {
+    local row="$1"
+    local is_hover="$2"
+    local act_idx=$(( row - ROW_TWIN_START ))
+
+    local bg=""
+    [ "$is_hover" -eq 1 ] && [ "$act_idx" -ge 0 ] && [ "$act_idx" -le 10 ] && bg="${BG_HOVER}"
+
+    local col_start=$(( RIGHT_START + 1 ))
+    printf "\e[%d;%dH" "$row" "$col_start"
+
+    if [ "$act_idx" -ge 0 ] && [ "$act_idx" -le 10 ]; then
+        local p1=""
+        local p2=""
+        local raw_text=""
+
+        case "$act_idx" in
+            0)  p1="${C_GREEN}[c]${C_RESET}${bg}";  p2="   Connect via SSH (Auto-tmux)"; raw_text="  [c]   Connect via SSH (Auto-tmux)" ;;
+            1)  p1="${C_CYAN}[b]${C_RESET}${bg}";   p2="   Browse files in GUI File Manager"; raw_text="  [b]   Browse files in GUI File Manager" ;;
+            2)  p1="${C_BLUE}[s]${C_RESET}${bg}";   p2="   Interactive SFTP shell"; raw_text="  [s]   Interactive SFTP shell" ;;
+            3)  p1="${C_PURPLE}[t]${C_RESET}${bg}"; p2="   Port Tunneling (Local forward)"; raw_text="  [t]   Port Tunneling (Local forward)" ;;
+            4)  p1="${C_ORANGE}[w]${C_RESET}${bg}"; p2="   Wake-on-LAN (Magic Packet)"; raw_text="  [w]   Wake-on-LAN (Magic Packet)" ;;
+            5)  p1="${C_YELLOW}[k]${C_RESET}${bg}"; p2="   Push SSH Key (ssh-copy-id)"; raw_text="  [k]   Push SSH Key (ssh-copy-id)" ;;
+            6)  p1="${C_GREEN}[a]${C_RESET}${bg}";  p2="   Add new server profile"; raw_text="  [a]   Add new server profile" ;;
+            7)  p1="${C_CYAN}[e]${C_RESET}${bg}";   p2="   Edit server profile"; raw_text="  [e]   Edit server profile" ;;
+            8)  p1="${C_RED}[d]${C_RESET}${bg}";    p2="   Delete server profile"; raw_text="  [d]   Delete server profile" ;;
+            9)  p1="${C_BLUE}[r]${C_RESET}${bg}";   p2="   Refresh status & latencies"; raw_text="  [r]   Refresh status & latencies" ;;
+            10) p1="${C_RED}[q]${C_RESET}${bg}";    p2="   Exit Console"; raw_text="  [q]   Exit Console" ;;
+        esac
+
+        local text_len=${#raw_text}
+        local pad=$(( RIGHT_INNER_W - text_len ))
+        [ "$pad" -lt 0 ] && pad=0
+
+        printf "${bg}  %b%b${bg}%*s${C_RESET}" "$p1" "$p2" "$pad" ""
+    else
+        printf "${bg}%*s${C_RESET}" "$RIGHT_INNER_W" ""
+    fi
+    printf "\e[%d;%dH${C_BORDER}│${C_RESET}" "$row" "$RIGHT_END"
+}
+
+connect_ssh() {
+    local idx="$1"
+    local name="${srv_names[$idx]}"
+    local user="${srv_users[$idx]}"
+    local host="${srv_hosts[$idx]}"
+    local port="${srv_ports[$idx]}"
+    local key="${srv_keys[$idx]}"
+
     disable_mouse
-    render_sub_dialog "ADD NEW SERVER SETUP" "${C_CYAN}" "ADD"
-    prompt_in_dialog "Friendly Name : "
-    read -r name
-    [[ -z "$name" || "$name" =~ ^[BbQq]$ ]] && return
+    clear
+    echo -e "${C_HEADER}${C_BOLD}◆ CONNECTING TO: ${name} (${user}@${host}:${port})${C_RESET}\n"
 
-    render_sub_dialog "ADD NEW SERVER SETUP" "${C_CYAN}" "ADD"
-    prompt_in_dialog "Username      : "
-    read -r user
-    [[ -z "$user" || "$user" =~ ^[BbQq]$ ]] && return
+    local ssh_opts=("-p" "$port")
+    if [ -n "$key" ]; then
+        local exp_key
+        exp_key=$(expand_path "$key")
+        [ -f "$exp_key" ] && ssh_opts+=("-i" "$exp_key")
+    fi
 
-    render_sub_dialog "ADD NEW SERVER SETUP" "${C_CYAN}" "ADD"
-    prompt_in_dialog "Host / IP     : "
-    read -r host
-    [[ -z "$host" || "$host" =~ ^[BbQq]$ ]] && return
+    echo -ne "${C_YELLOW}[INPUT] Auto-attach to remote tmux session if available? (y/N): ${C_RESET}"
+    read -r use_tmux
+    echo ""
 
-    render_sub_dialog "ADD NEW SERVER SETUP" "${C_CYAN}" "ADD"
-    prompt_in_dialog "Port [22]     : "
-    read -r port
-    port=${port:-22}
+    if [[ "$use_tmux" =~ ^[Yy]$ ]]; then
+        ssh -t "${ssh_opts[@]}" "${user}@${host}" "tmux attach || tmux new || \$SHELL"
+    else
+        ssh "${ssh_opts[@]}" "${user}@${host}"
+    fi
+}
 
-    render_sub_dialog "ADD NEW SERVER SETUP" "${C_CYAN}" "ADD"
-    prompt_in_dialog "Tag [Homelab] : "
-    read -r tag
-    tag=${tag:-Homelab}
+browse_gui() {
+    local idx="$1"
+    local name="${srv_names[$idx]}"
+    local user="${srv_users[$idx]}"
+    local host="${srv_hosts[$idx]}"
+    local port="${srv_ports[$idx]}"
+    local url="sftp://${user}@${host}:${port}/"
 
-    render_sub_dialog "ADD NEW SERVER SETUP" "${C_CYAN}" "ADD"
-    prompt_in_dialog "MAC Addr [-]  : "
-    read -r mac
-    mac=${mac:--}
+    if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$url" &>/dev/null &
+        temp_message "[  OK  ] Opening '$name' in GUI file manager..."
+    elif command -v dolphin >/dev/null 2>&1; then
+        dolphin "$url" &>/dev/null &
+        temp_message "[  OK  ] Opening '$name' in Dolphin..."
+    else
+        temp_message "[ FAIL ] No compatible GUI file manager opener found."
+    fi
+}
 
-    render_sub_dialog "ADD NEW SERVER SETUP" "${C_CYAN}" "ADD"
-    prompt_in_dialog "Key path [-]  : "
-    read -r key_path
-    key_path=${key_path:--}
+connect_sftp() {
+    local idx="$1"
+    local name="${srv_names[$idx]}"
+    local user="${srv_users[$idx]}"
+    local host="${srv_hosts[$idx]}"
+    local port="${srv_ports[$idx]}"
+    local key="${srv_keys[$idx]}"
 
-    echo "${name}|${user}|${host}|${port}|${tag}|${mac}|${key_path}" >> "$CONFIG_FILE"
-    temp_message "[  OK  ] Server profile saved successfully!"
+    disable_mouse
+    clear
+    echo -e "${C_HEADER}${C_BOLD}◆ SFTP SESSION: ${name}${C_RESET}\n"
+
+    local sftp_opts=("-P" "$port")
+    if [ -n "$key" ]; then
+        local exp_key
+        exp_key=$(expand_path "$key")
+        [ -f "$exp_key" ] && sftp_opts+=("-i" "$exp_key")
+    fi
+
+    sftp "${sftp_opts[@]}" "${user}@${host}"
+}
+
+port_tunnel_flow() {
+    local idx="$1"
+    local name="${srv_names[$idx]}"
+    local user="${srv_users[$idx]}"
+    local host="${srv_hosts[$idx]}"
+    local port="${srv_ports[$idx]}"
+    local key="${srv_keys[$idx]}"
+
+    disable_mouse
+    clear
+    echo -e "${C_HEADER}${C_BOLD}◆ BACKGROUND PORT TUNNELING: ${name}${C_RESET}\n"
+    echo -ne "${C_YELLOW}[INPUT] Local port to bind (e.g. 8080): ${C_RESET}"
+    read -erp "" lport
+    echo -ne "${C_YELLOW}[INPUT] Remote target port (e.g. 80): ${C_RESET}"
+    read -erp "" rport
+
+    if [[ -z "$lport" || -z "$rport" ]]; then
+        echo -e "\n${C_RED}[ FAIL ] Ports cannot be empty.${C_RESET}"
+        sleep 1.5
+        return
+    fi
+
+    local ssh_opts=("-p" "$port" "-f" "-N" "-L" "${lport}:localhost:${rport}")
+    if [ -n "$key" ]; then
+        local exp_key
+        exp_key=$(expand_path "$key")
+        [ -f "$exp_key" ] && ssh_opts+=("-i" "$exp_key")
+    fi
+
+    echo -e "\n${C_CYAN}[ INFO ] Establishing background tunnel (localhost:${lport} -> ${host}:${rport})...${C_RESET}"
+    if ssh "${ssh_opts[@]}" "${user}@${host}"; then
+        echo -e "${C_GREEN}${C_BOLD}[  OK  ] Tunnel active in background!${C_RESET}"
+    else
+        echo -e "${C_RED}${C_BOLD}[ FAIL ] Could not establish port tunnel.${C_RESET}"
+    fi
+    echo -ne "\n${C_MUTED}Press Enter to return to hub...${C_RESET}"
+    read -r
+}
+
+wake_on_lan_flow() {
+    local idx="$1"
+    local name="${srv_names[$idx]}"
+    local mac="${srv_macs[$idx]}"
+
+    if [ -z "$mac" ]; then
+        temp_message "[ FAIL ] No MAC address saved for '$name'. Edit profile first."
+        return
+    fi
+
+    if command -v wakeonlan >/dev/null 2>&1; then
+        wakeonlan "$mac" >/dev/null 2>&1
+        temp_message "[  OK  ] Magic packet sent to $name ($mac)!"
+    elif command -v wol >/dev/null 2>&1; then
+        wol "$mac" >/dev/null 2>&1
+        temp_message "[  OK  ] Magic packet sent to $name ($mac)!"
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c "
+import socket
+mac = '$mac'.replace(':', '').replace('-', '')
+data = bytes.fromhex('FF' * 6 + mac * 16)
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+s.sendto(data, ('255.255.255.255', 9))
+" 2>/dev/null
+        temp_message "[  OK  ] Magic packet sent via UDP broadcast to $mac!"
+    else
+        temp_message "[ FAIL ] No WoL tool or python3 available."
+    fi
+}
+
+push_ssh_key_flow() {
+    local idx="$1"
+    local name="${srv_names[$idx]}"
+    local user="${srv_users[$idx]}"
+    local host="${srv_hosts[$idx]}"
+    local port="${srv_ports[$idx]}"
+    local key="${srv_keys[$idx]}"
+
+    disable_mouse
+    clear
+    echo -e "${C_HEADER}${C_BOLD}◆ PUSH SSH KEY TO: ${name}${C_RESET}\n"
+    echo -e "${C_MUTED}(Tip: Press [Tab] to auto-complete file paths)${C_RESET}"
+    echo -ne "${C_YELLOW}[INPUT] SSH Public Key path [Default: ${key:-~/.ssh/id_ed25519.pub}]: ${C_RESET}"
+    read -erp "" custom_key
+
+    local target_key="${custom_key:-$key}"
+    local copy_opts=("-p" "$port")
+    if [ -n "$target_key" ]; then
+        local exp_key
+        exp_key=$(expand_path "$target_key")
+        copy_opts+=("-i" "$exp_key")
+    fi
+
+    echo ""
+    ssh-copy-id "${copy_opts[@]}" "${user}@${host}"
+    echo -ne "\n${C_MUTED}Press Enter to return to hub...${C_RESET}"
+    read -r
+}
+
+add_server_flow() {
+    disable_mouse
+    clear
+    echo -e "${C_HEADER}${C_BOLD}◆ ADD NEW SERVER PROFILE${C_RESET}\n"
+
+    echo -ne "${C_YELLOW}Friendly Name: ${C_RESET}"
+    read -erp "" name
+    [ -z "$name" ] && return
+
+    echo -ne "${C_YELLOW}Username: ${C_RESET}"
+    read -erp "" user
+    [ -z "$user" ] && return
+
+    echo -ne "${C_YELLOW}Host / IP Address: ${C_RESET}"
+    read -erp "" host
+    [ -z "$host" ] && return
+
+    echo -ne "${C_YELLOW}SSH Port [Default: 22]: ${C_RESET}"
+    read -erp "" port
+    [ -z "$port" ] && port=22
+
+    echo -ne "${C_YELLOW}Tag / Category (optional, e.g. Homelab): ${C_RESET}"
+    read -erp "" tag
+
+    echo -ne "${C_YELLOW}MAC Address for WoL (optional, XX:XX:XX:XX:XX:XX): ${C_RESET}"
+    read -erp "" mac
+
+    echo -e "${C_MUTED}(Tip: Press [Tab] to auto-complete key path)${C_RESET}"
+    echo -ne "${C_YELLOW}SSH Private Key Path (optional): ${C_RESET}"
+    read -erp "" key
+
+    echo "${name}|${user}|${host}|${port}|${tag}|${mac}|${key}" >> "$CONFIG_FILE"
+    echo -e "\n${C_GREEN}[  OK  ] Server '$name' saved!${C_RESET}"
+    sleep 1
 }
 
 edit_server_flow() {
-    local all_indices=()
-    for i in "${!names[@]}"; do all_indices+=("$i"); done
+    local idx="$1"
+    local real_idx="${srv_real_idx[$idx]}"
 
-    render_sub_dialog "EDIT SERVER PROFILE" "${C_PURPLE}" "EDIT" "${all_indices[@]}"
-    get_server_selection "Select server number to edit: " "${all_indices[@]}"
-    local srv_num="$SRV_NUM_CHOICE"
+    IFS='|' read -r c_name c_user c_host c_port c_tag c_mac c_key <<< "${all_lines[$real_idx]}"
+    [ -z "$c_port" ] && c_port=22
 
-    [[ -z "$srv_num" || "$srv_num" =~ ^[BbQq]$ ]] && return
+    disable_mouse
+    clear
+    echo -e "${C_HEADER}${C_BOLD}◆ EDIT SERVER PROFILE: ${c_name}${C_RESET}\n"
+    echo -e "${C_MUTED}(Edit values below or press Enter to accept current value)${C_RESET}\n"
 
-    if [[ "$srv_num" =~ ^[0-9]+$ ]] && [ "$srv_num" -ge 1 ] && [ "$srv_num" -le "${#names[@]}" ]; then
-        local idx=$((srv_num - 1))
-        local cur_name="${names[$idx]}"
-        local cur_user="${users[$idx]}"
-        local cur_host="${hosts[$idx]}"
-        local cur_port="${ports[$idx]}"
-        local cur_tag="${tags[$idx]}"
-        local cur_mac="${macs[$idx]}"
-        local cur_key="${keys[$idx]}"
+    read -erp "Friendly Name: " -i "$c_name" name
+    read -erp "Username: " -i "$c_user" user
+    read -erp "Host / IP: " -i "$c_host" host
+    read -erp "SSH Port: " -i "$c_port" port
+    read -erp "Tag / Category: " -i "$c_tag" tag
+    read -erp "MAC Address: " -i "$c_mac" mac
+    echo -e "${C_MUTED}(Tip: Press [Tab] to auto-complete key path)${C_RESET}"
+    read -erp "SSH Key Path: " -i "$c_key" key
 
-        render_sub_dialog "EDIT SERVER PROFILE" "${C_PURPLE}" "EDIT" "$idx"
-        prompt_in_dialog "Name [${cur_name}]: "
-        read -r new_name
-        [[ "$new_name" =~ ^[BbQq]$ ]] && return
-        new_name=${new_name:-$cur_name}
+    all_lines[$real_idx]="${name}|${user}|${host}|${port:-22}|${tag}|${mac}|${key}"
+    printf "%s\n" "${all_lines[@]}" > "$CONFIG_FILE"
 
-        render_sub_dialog "EDIT SERVER PROFILE" "${C_PURPLE}" "EDIT" "$idx"
-        prompt_in_dialog "User [${cur_user}]: "
-        read -r new_user
-        [[ "$new_user" =~ ^[BbQq]$ ]] && return
-        new_user=${new_user:-$cur_user}
+    echo -e "\n${C_GREEN}[  OK  ] Profile updated!${C_RESET}"
+    sleep 1
+}
 
-        render_sub_dialog "EDIT SERVER PROFILE" "${C_PURPLE}" "EDIT" "$idx"
-        prompt_in_dialog "Host [${cur_host}]: "
-        read -r new_host
-        [[ "$new_host" =~ ^[BbQq]$ ]] && return
-        new_host=${new_host:-$cur_host}
+delete_server_flow() {
+    local idx="$1"
+    local real_idx="${srv_real_idx[$idx]}"
+    local name="${srv_names[$idx]}"
 
-        render_sub_dialog "EDIT SERVER PROFILE" "${C_PURPLE}" "EDIT" "$idx"
-        prompt_in_dialog "Port [${cur_port}]: "
-        read -r new_port
-        [[ "$new_port" =~ ^[BbQq]$ ]] && return
-        new_port=${new_port:-$cur_port}
+    prompt_in_dialog "Delete '$name'? Type [y] to confirm: "
+    read -r confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        unset 'all_lines[real_idx]'
+        if [ "${#all_lines[@]}" -eq 0 ]; then
+            > "$CONFIG_FILE"
+        else
+            printf "%s\n" "${all_lines[@]}" > "$CONFIG_FILE"
+        fi
+        temp_message "[  OK  ] Deleted '$name'."
+    else
+        temp_message "[ INFO ] Deletion cancelled."
+    fi
+}
 
-        render_sub_dialog "EDIT SERVER PROFILE" "${C_PURPLE}" "EDIT" "$idx"
-        prompt_in_dialog "Tag [${cur_tag}]: "
-        read -r new_tag
-        [[ "$new_tag" =~ ^[BbQq]$ ]] && return
-        new_tag=${new_tag:-$cur_tag}
+cycle_filter_tag() {
+    local count=${#unique_tags[@]}
+    [ "$count" -le 1 ] && return
+    local next_idx=0
+    for i in "${!unique_tags[@]}"; do
+        if [ "${unique_tags[$i]}" == "$FILTER_TAG" ]; then
+            next_idx=$(( (i + 1) % count ))
+            break
+        fi
+    done
+    FILTER_TAG="${unique_tags[$next_idx]}"
+}
 
-        render_sub_dialog "EDIT SERVER PROFILE" "${C_PURPLE}" "EDIT" "$idx"
-        prompt_in_dialog "MAC [${cur_mac}]: "
-        read -r new_mac
-        [[ "$new_mac" =~ ^[BbQq]$ ]] && return
-        new_mac=${new_mac:-$cur_mac}
-
-        render_sub_dialog "EDIT SERVER PROFILE" "${C_PURPLE}" "EDIT" "$idx"
-        prompt_in_dialog "Key [${cur_key}]: "
-        read -r new_key
-        [[ "$new_key" =~ ^[BbQq]$ ]] && return
-        new_key=${new_key:-$cur_key}
-
-        names[$idx]="$new_name"
-        users[$idx]="$new_user"
-        hosts[$idx]="$new_host"
-        ports[$idx]="$new_port"
-        tags[$idx]="$new_tag"
-        macs[$idx]="$new_mac"
-        keys[$idx]="$new_key"
-
-        > "$CONFIG_FILE"
-        for i in "${!names[@]}"; do
-            echo "${names[$i]}|${users[$i]}|${hosts[$i]}|${ports[$i]}|${tags[$i]}|${macs[$i]}|${keys[$i]}" >> "$CONFIG_FILE"
-        done
-
-        unmount_network_folder "$cur_name" "$cur_user" "$cur_host" "$cur_port" >/dev/null 2>&1
-        mount_network_folder "$new_name" "$new_user" "$new_host" "$new_port"
-
-        temp_message "[  OK  ] Server profile successfully updated!"
+prompt_server_index() {
+    local prompt_msg="$1"
+    if [ "$server_count" -eq 0 ]; then
+        temp_message "[ FAIL ] No servers available in current view."
+        return 255
+    fi
+    prompt_in_dialog "$prompt_msg [1-$server_count]: "
+    local num
+    read -r num
+    if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le "$server_count" ]; then
+        return $(( num - 1 ))
+    else
+        temp_message "[ FAIL ] Invalid server selection."
+        return 255
     fi
 }
 
 while true; do
+    load_servers
     enable_mouse
     RESIZE_TRIGGERED=0
 
-    names=()
-    users=()
-    hosts=()
-    ports=()
-    tags=()
-    macs=()
-    keys=()
-    status_dots=()
-    mount_status=()
-    latencies=()
-    available_tags=("ALL")
-
-    if [ -s "$CONFIG_FILE" ]; then
-        while IFS='|' read -r name user host port tag mac key; do
-            [ -z "$name" ] && continue
-            names+=("$name")
-            users+=("$user")
-            hosts+=("$host")
-            ports+=("${port:-22}")
-            tags+=("${tag:-Homelab}")
-            macs+=("${mac:--}")
-            keys+=("${key:--}")
-
-            t="${tag:-Homelab}"
-            found_t=0
-            for existing in "${available_tags[@]}"; do
-                [ "$existing" == "$t" ] && found_t=1
-            done
-            [ "$found_t" -eq 0 ] && available_tags+=("$t")
-
-            ping_res=$(ping -c 1 -W 1 "$host" 2>/dev/null)
-            if [ $? -eq 0 ]; then
-                ping_time=$(echo "$ping_res" | grep -oP 'time=\K[0-9.]+' | head -n1)
-                if [ -n "$ping_time" ]; then
-                    lat_int=${ping_time%.*}
-                    [ "$lat_int" -eq 0 ] && latencies+=("<1ms") || latencies+=("${lat_int}ms")
-                else
-                    latencies+=("1ms")
-                fi
-                st_dot="${C_GREEN}●${C_RESET}"
-            else
-                if timeout 0.3 bash -c "</dev/tcp/$host/${port:-22}" 2>/dev/null; then
-                    latencies+=("TCP")
-                    st_dot="${C_GREEN}●${C_RESET}"
-                else
-                    latencies+=("---")
-                    st_dot="${C_RED}○${C_RESET}"
-                fi
-            fi
-            status_dots+=("$st_dot")
-
-            if is_folder_mounted "$name" "$user" "$host" "${port:-22}"; then
-                mount_status+=("${C_BLUE}●${C_RESET}")
-            else
-                mount_status+=("${C_BLUE}○${C_RESET}")
-            fi
-        done < "$CONFIG_FILE"
-    fi
-
-    filtered_indices=()
-    for i in "${!names[@]}"; do
-        if [ "$ACTIVE_FILTER" == "ALL" ] || [ "${tags[$i]}" == "$ACTIVE_FILTER" ]; then
-            filtered_indices+=("$i")
-        fi
-    done
-
-    host_count=${#filtered_indices[@]}
-
     draw_wireframe
 
-    printf "\e[2;3H${C_HEADER}${C_BOLD}◆ SSH CONNECTION HUB${C_RESET}"
-    printf "\e[2;%dH${C_MUTED}Auto: 10s${C_RESET}" "$(( TOTAL_W - 13 ))"
+    printf "\e[2;3H${C_HEADER}${C_BOLD}◆ SSH CONNECTION HUB (v${VERSION})${C_RESET}"
+    printf "\e[2;%dH${C_MUTED}Filter: [${C_CYAN}%s${C_MUTED}]${C_RESET}" "$(( TOTAL_W - ${#FILTER_TAG} - 12 ))" "$FILTER_TAG"
     printf "\e[2;%dH${C_BORDER}│${C_RESET}" "$TOTAL_W"
 
-    printf "\e[%d;4H${C_CYAN}${C_BOLD} SAVED NODES (${ACTIVE_FILTER}) ${C_RESET}" "$ROW_TWIN_TOP"
+    printf "\e[%d;4H${C_CYAN}${C_BOLD} REMOTE NODES (${server_count}) ${C_RESET}" "$ROW_TWIN_TOP"
     printf "\e[%d;%dH${C_HEADER}${C_BOLD} ACTION CENTER ${C_RESET}" "$ROW_TWIN_TOP" "$(( RIGHT_START + 3 ))"
 
     printf "\e[%d;4H${C_YELLOW}${C_BOLD} STATUS & QUICK LAUNCH ${C_RESET}" "$ROW_PROMPT_TOP"
-    printf "\e[%d;3HClick option, type [1-%d], or press [F] to filter: \e[%d;%dH${C_BORDER}│${C_RESET}" \
-        "$ROW_PROMPT_INPUT" "$host_count" "$ROW_PROMPT_INPUT" "$TOTAL_W"
+    printf "\e[%d;3HType node [1-%d], action key, [f]ilter, or [q] to exit: \e[%d;%dH${C_BORDER}│${C_RESET}" \
+        "$ROW_PROMPT_INPUT" "$server_count" "$ROW_PROMPT_INPUT" "$TOTAL_W"
 
     for ((r=ROW_TWIN_START; r<=ROW_TWIN_END; r++)); do
         if [ "$r" -lt "$ROW_LEGEND_SEP" ]; then
-            render_left_pane "$r" 0 0
+            render_left_pane "$r" 0
         fi
         render_right_pane "$r" 0
     done
-    
+
     draw_left_legend
 
     active_hover_side=""
     active_hover_row=0
-    active_hover_col=0
+    active_hover_mode=0
     choice=""
-    start_wait=$(date +%s)
+    clicked_mount_idx=-1
 
-    printf "\e[%d;54H" "$ROW_PROMPT_INPUT"
+    printf "\e[%d;60H" "$ROW_PROMPT_INPUT"
 
     while true; do
         if [ "$RESIZE_TRIGGERED" -eq 1 ]; then
-            choice="u"
-            break
-        fi
-
-        now=$(date +%s)
-        elapsed=$(( now - start_wait ))
-
-        if [ "$elapsed" -ge "$AUTO_REFRESH_SECONDS" ]; then
-            choice="u"
+            choice="r"
             break
         fi
 
@@ -945,10 +753,15 @@ while true; do
                         action="${BASH_REMATCH[4]}"
 
                         side=""
+                        new_hover_mode=1
                         if [ "$cy" -ge "$ROW_TWIN_START" ] && [ "$cy" -le "$ROW_TWIN_END" ]; then
                             if [ "$cx" -ge 2 ] && [ "$cx" -le "$LEFT_END" ]; then
                                 if [ "$cy" -lt "$ROW_LEGEND_SEP" ]; then
                                     side="L"
+                                    # Columns 5 to 7 correspond to the mount diamond area
+                                    if [ "$cx" -ge 5 ] && [ "$cx" -le 7 ]; then
+                                        new_hover_mode=2
+                                    fi
                                 fi
                             elif [ "$cx" -ge "$RIGHT_START" ] && [ "$cx" -le "$RIGHT_END" ]; then
                                 side="R"
@@ -957,72 +770,74 @@ while true; do
 
                         if [ -n "$side" ]; then
                             redraw=0
-                            if [ "$side" != "$active_hover_side" ] || [ "$cy" -ne "$active_hover_row" ]; then
+                            if [ "$side" != "$active_hover_side" ] || [ "$cy" -ne "$active_hover_row" ] || [ "$new_hover_mode" -ne "$active_hover_mode" ]; then
                                 redraw=1
-                            elif [ "$side" == "L" ]; then
-                                old_in_dot=0
-                                new_in_dot=0
-                                [ "$active_hover_col" -ge 6 ] && [ "$active_hover_col" -le 8 ] && old_in_dot=1
-                                [ "$cx" -ge 6 ] && [ "$cx" -le 8 ] && new_in_dot=1
-                                [ "$old_in_dot" -ne "$new_in_dot" ] && redraw=1
                             fi
 
                             if [ "$redraw" -eq 1 ]; then
-                                [ "$active_hover_side" == "L" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_sub_left_pane "$active_hover_row" 0 0 "${filtered_indices[@]}"
-                                [ "$active_hover_side" == "R" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_right_pane "$active_hover_row" 0
+                                if [ "$active_hover_side" == "L" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && [ "$active_hover_row" -ne "$cy" ]; then
+                                    render_left_pane "$active_hover_row" 0
+                                fi
+                                if [ "$active_hover_side" == "R" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && [ "$active_hover_row" -ne "$cy" ]; then
+                                    render_right_pane "$active_hover_row" 0
+                                fi
+                                if [ "$active_hover_side" != "$side" ]; then
+                                    [ "$active_hover_side" == "L" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_left_pane "$active_hover_row" 0
+                                    [ "$active_hover_side" == "R" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_right_pane "$active_hover_row" 0
+                                fi
 
-                                [ "$side" == "L" ] && render_sub_left_pane "$cy" 1 "$cx" "${filtered_indices[@]}"
+                                [ "$side" == "L" ] && render_left_pane "$cy" "$new_hover_mode"
                                 [ "$side" == "R" ] && render_right_pane "$cy" 1
 
                                 active_hover_side="$side"
                                 active_hover_row="$cy"
-                                active_hover_col="$cx"
-                                printf "\e[%d;54H" "$ROW_PROMPT_INPUT"
-                            else
-                                active_hover_col="$cx"
+                                active_hover_mode="$new_hover_mode"
+                                printf "\e[%d;60H" "$ROW_PROMPT_INPUT"
                             fi
                         else
                             if [ -n "$active_hover_side" ]; then
-                                [ "$active_hover_side" == "L" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_sub_left_pane "$active_hover_row" 0 0 "${filtered_indices[@]}"
+                                [ "$active_hover_side" == "L" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_left_pane "$active_hover_row" 0
                                 [ "$active_hover_side" == "R" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_right_pane "$active_hover_row" 0
                                 active_hover_side=""
                                 active_hover_row=0
-                                active_hover_col=0
-                                printf "\e[%d;54H" "$ROW_PROMPT_INPUT"
+                                active_hover_mode=0
+                                printf "\e[%d;60H" "$ROW_PROMPT_INPUT"
                             fi
                         fi
 
                         if [ "$btn" -eq 0 ] && [ "$action" == "M" ]; then
                             if [ "$side" == "L" ]; then
                                 clicked_idx=$(( cy - ROW_TWIN_START ))
-                                if [ "$clicked_idx" -lt "$host_count" ]; then
-                                    if [ "$cx" -ge 6 ] && [ "$cx" -le 8 ]; then
-                                        choice="toggle_${clicked_idx}"
+                                if [ "$clicked_idx" -ge 0 ] && [ "$clicked_idx" -lt "$server_count" ]; then
+                                    # Click on mount diamond (cols 5-7) toggles mount
+                                    if [ "$cx" -ge 5 ] && [ "$cx" -le 7 ]; then
+                                        clicked_mount_idx=$clicked_idx
+                                        choice="MOUNT_TOGGLE"
+                                        break
                                     else
-                                        choice=$(( clicked_idx + 1 ))
+                                        choice="$(( clicked_idx + 1 ))"
+                                        break
                                     fi
-                                    break
                                 fi
                             elif [ "$side" == "R" ]; then
                                 case $(( cy - ROW_TWIN_START )) in
-                                    0) choice="a"; break ;;
-                                    1) choice="k"; break ;;
-                                    2) choice="o"; break ;;
-                                    3) choice="s"; break ;;
-                                    4) choice="t"; break ;;
-                                    5) choice="w"; break ;;
-                                    6) choice="e"; break ;;
-                                    7) choice="f"; break ;;
-                                    8) choice="r"; break ;;
-                                    9) choice="d"; break ;;
-                                   10) choice="u"; break ;;
-                                   11) choice="q"; break ;;
+                                    0)  choice="c"; break ;;
+                                    1)  choice="b"; break ;;
+                                    2)  choice="s"; break ;;
+                                    3)  choice="t"; break ;;
+                                    4)  choice="w"; break ;;
+                                    5)  choice="k"; break ;;
+                                    6)  choice="a"; break ;;
+                                    7)  choice="e"; break ;;
+                                    8)  choice="d"; break ;;
+                                    9)  choice="r"; break ;;
+                                    10) choice="q"; break ;;
                                 esac
                             fi
                         fi
                     fi
                 fi
-            elif [[ "$char" =~ ^[0-9a-zA-ZfF]$ ]]; then
+            elif [[ "$char" =~ ^[0-9a-zA-Z]$ ]]; then
                 choice="$char"
                 break
             fi
@@ -1036,136 +851,61 @@ while true; do
             clear
             exit 0
             ;;
-        [Uu])
+        [Rr])
             continue
             ;;
         [Ff])
-            for idx in "${!available_tags[@]}"; do
-                if [ "${available_tags[$idx]}" == "$ACTIVE_FILTER" ]; then
-                    next_idx=$(( (idx + 1) % ${#available_tags[@]} ))
-                    ACTIVE_FILTER="${available_tags[$next_idx]}"
-                    break
-                fi
-            done
-            continue
+            cycle_filter_tag
             ;;
-        [Aa])
-            add_new_server_flow
+        MOUNT_TOGGLE)
+            [ "$clicked_mount_idx" -ge 0 ] && toggle_mount "$clicked_mount_idx"
             ;;
-        [Kk])
-            render_sub_dialog "PUSH SSH PUBLIC KEY" "${C_PURPLE}" "KEY" "${filtered_indices[@]}"
-            get_server_selection "Enter server number to receive key: " "${filtered_indices[@]}"
-            srv_num="$SRV_NUM_CHOICE"
-
-            if [[ "$srv_num" =~ ^[0-9]+$ ]] && [ "$srv_num" -ge 1 ] && [ "$srv_num" -le "${#filtered_indices[@]}" ]; then
-                idx="${filtered_indices[$((srv_num - 1))]}"
-                send_ssh_key "${users[$idx]}@${hosts[$idx]}" "${ports[$idx]}" "${keys[$idx]}"
-            fi
+        [Cc])
+            prompt_server_index "Enter server number to connect"
+            idx=$?
+            [ "$idx" -ne 255 ] && connect_ssh "$idx"
             ;;
-        [Oo])
-            render_sub_dialog "OPEN REMOTE IN FILE MANAGER" "${C_CYAN}" "DOLPHIN" "${filtered_indices[@]}"
-            get_server_selection "Enter server number to launch: " "${filtered_indices[@]}"
-            srv_num="$SRV_NUM_CHOICE"
-
-            if [[ "$srv_num" =~ ^[0-9]+$ ]] && [ "$srv_num" -ge 1 ] && [ "$srv_num" -le "${#filtered_indices[@]}" ]; then
-                idx="${filtered_indices[$((srv_num - 1))]}"
-                open_file_manager "${names[$idx]}" "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}"
-            fi
+        [Bb])
+            prompt_server_index "Enter server number to browse"
+            idx=$?
+            [ "$idx" -ne 255 ] && browse_gui "$idx"
             ;;
         [Ss])
-            render_sub_dialog "SFTP TERMINAL SESSION" "${C_BLUE}" "SFTP" "${filtered_indices[@]}"
-            get_server_selection "Enter server number for SFTP shell: " "${filtered_indices[@]}"
-            srv_num="$SRV_NUM_CHOICE"
-
-            if [[ "$srv_num" =~ ^[0-9]+$ ]] && [ "$srv_num" -ge 1 ] && [ "$srv_num" -le "${#filtered_indices[@]}" ]; then
-                idx="${filtered_indices[$((srv_num - 1))]}"
-                open_sftp_shell "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}" "${keys[$idx]}"
-            fi
+            prompt_server_index "Enter server number for SFTP"
+            idx=$?
+            [ "$idx" -ne 255 ] && connect_sftp "$idx"
             ;;
         [Tt])
-            render_sub_dialog "ESTABLISH PORT TUNNEL" "${C_PURPLE}" "KEY" "${filtered_indices[@]}"
-            get_server_selection "Enter server number for tunnel: " "${filtered_indices[@]}"
-            srv_num="$SRV_NUM_CHOICE"
-
-            if [[ "$srv_num" =~ ^[0-9]+$ ]] && [ "$srv_num" -ge 1 ] && [ "$srv_num" -le "${#filtered_indices[@]}" ]; then
-                idx="${filtered_indices[$((srv_num - 1))]}"
-                create_port_tunnel "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}" "${keys[$idx]}"
-            fi
+            prompt_server_index "Enter server number for Port Tunnel"
+            idx=$?
+            [ "$idx" -ne 255 ] && port_tunnel_flow "$idx"
             ;;
         [Ww])
-            render_sub_dialog "WAKE-ON-LAN" "${C_YELLOW}" "KEY" "${filtered_indices[@]}"
-            get_server_selection "Enter server number to wake up: " "${filtered_indices[@]}"
-            srv_num="$SRV_NUM_CHOICE"
-
-            if [[ "$srv_num" =~ ^[0-9]+$ ]] && [ "$srv_num" -ge 1 ] && [ "$srv_num" -le "${#filtered_indices[@]}" ]; then
-                idx="${filtered_indices[$((srv_num - 1))]}"
-                wake_on_lan_node "${macs[$idx]}"
-            fi
+            prompt_server_index "Enter server number to Wake-on-LAN"
+            idx=$?
+            [ "$idx" -ne 255 ] && wake_on_lan_flow "$idx"
+            ;;
+        [Kk])
+            prompt_server_index "Enter server number to push SSH key"
+            idx=$?
+            [ "$idx" -ne 255 ] && push_ssh_key_flow "$idx"
+            ;;
+        [Aa])
+            add_server_flow
             ;;
         [Ee])
-            edit_server_flow
-            ;;
-        [Rr])
-            added_indices=()
-            for i in "${filtered_indices[@]}"; do
-                if is_folder_mounted "${names[$i]}" "${users[$i]}" "${hosts[$i]}" "${ports[$i]}"; then
-                    added_indices+=("$i")
-                fi
-            done
-
-            if [ ${#added_indices[@]} -eq 0 ]; then
-                temp_message "[ INFO ] No matching servers are currently mounted."
-                continue
-            fi
-
-            render_sub_dialog "REMOVE NETWORK BOOKMARK" "${C_YELLOW}" "KDE_REM" "${added_indices[@]}"
-            get_server_selection "Enter server number to unmount: " "${filtered_indices[@]}"
-            srv_num="$SRV_NUM_CHOICE"
-
-            if [[ "$srv_num" =~ ^[0-9]+$ ]] && [ "$srv_num" -ge 1 ] && [ "$srv_num" -le "${#added_indices[@]}" ]; then
-                chosen_idx="${added_indices[$((srv_num - 1))]}"
-                unmount_network_folder "${names[$chosen_idx]}" "${users[$chosen_idx]}" "${hosts[$chosen_idx]}" "${ports[$chosen_idx]}"
-            fi
+            prompt_server_index "Enter server number to edit"
+            idx=$?
+            [ "$idx" -ne 255 ] && edit_server_flow "$idx"
             ;;
         [Dd])
-            render_sub_dialog "DELETE SAVED SERVER" "${C_ORANGE}" "DEL" "${filtered_indices[@]}"
-            get_server_selection "Enter server number to delete: " "${filtered_indices[@]}"
-            srv_num="$SRV_NUM_CHOICE"
-
-            if [[ "$srv_num" =~ ^[0-9]+$ ]] && [ "$srv_num" -ge 1 ] && [ "$srv_num" -le "${#filtered_indices[@]}" ]; then
-                idx="${filtered_indices[$((srv_num - 1))]}"
-                render_sub_dialog "CONFIRM DELETION" "${C_RED}" "DEL" "$idx"
-                prompt_in_dialog "Really delete '${names[$idx]}'? (y/N): "
-                read -r confirm
-                if [[ "$confirm" =~ ^[Yy]$ ]]; then
-                    delete_server "$idx"
-                fi
-            fi
-            ;;
-        toggle_*)
-            idx="${choice#toggle_}"
-            srv_name="${names[$idx]}"
-            if is_folder_mounted "$srv_name" "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}"; then
-                unmount_network_folder "$srv_name" "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}"
-            else
-                mount_network_folder "$srv_name" "${users[$idx]}" "${hosts[$idx]}" "${ports[$idx]}"
-            fi
+            prompt_server_index "Enter server number to delete"
+            idx=$?
+            [ "$idx" -ne 255 ] && delete_server_flow "$idx"
             ;;
         *)
-            if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#filtered_indices[@]}" ]; then
-                idx="${filtered_indices[$((choice - 1))]}"
-                target="${users[$idx]}@${hosts[$idx]}"
-                port="${ports[$idx]}"
-                key_path="${keys[$idx]}"
-
-                identity_arg=""
-                [ -n "$key_path" ] && [ "$key_path" != "-" ] && [ -f "$key_path" ] && identity_arg="-i $key_path"
-
-                clear
-                ssh -p "$port" $identity_arg "$target" -t "tmux attach || tmux new || bash"
-
-                echo -e "\n${C_ORANGE}[ INFO ] Session closed. Returning to SSH Connection Hub...${C_RESET}"
-                sleep 1.2
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$server_count" ]; then
+                connect_ssh $(( choice - 1 ))
             fi
             ;;
     esac
