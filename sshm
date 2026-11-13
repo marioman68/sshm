@@ -146,7 +146,6 @@ load_saved_theme
 
 trap cleanup_and_exit SIGINT SIGTERM
 trap 'RESIZE_TRIGGERED=1' SIGWINCH
-
 # ==============================================================================
 # MODULE 02: UI & Rendering Engine (Server-First Inspector)
 # ==============================================================================
@@ -747,7 +746,6 @@ render_right_theme_pane() {
     fi
     printf "\e[%d;%dH${C_BORDER}│${C_RESET}" "$row" "$RIGHT_END"
 }
-
 # ==============================================================================
 # MODULE 03: Backend Logic (Config, Ping/Latency, Mounts, MAC & Network Probes)
 # ==============================================================================
@@ -1021,7 +1019,6 @@ load_and_ping_servers() {
 
     rm -rf "$tmp_dir"
 }
-
 # ==============================================================================
 # MODULE 04: User Actions, Auto-MAC Probing & Interactive Network SSH Scanner
 # ==============================================================================
@@ -1967,7 +1964,6 @@ theme_picker_flow() {
 
     disable_mouse
 }
-
 # ==============================================================================
 # MODULE 05: Main Event Loop, Target Selection & Mouse/Keyboard Dispatcher
 # ==============================================================================
@@ -2190,4 +2186,3 @@ while true; do
         fi
     fi
 done
-
