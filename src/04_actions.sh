@@ -943,3 +943,109 @@ theme_picker_flow() {
 
     disable_mouse
 }
+
+
+refresh_settings_flow() {
+    draw_refresh_pane_all() {
+        for ((r=ROW_R_INFO_1; r<=ROW_TWIN_END; r++)); do
+            render_right_refresh_pane "$r" 0
+        done
+        prompt_in_dialog "Auto-Refresh: Click or press [1-5] to set timer, [0] to Turn OFF, or [Enter/q] Done: "
+    }
+
+    draw_refresh_pane_all
+    enable_mouse
+
+    local hover_row=0
+    local row_opt_end=$(( ROW_R_ACT_START + 5 ))
+    local row_done="$ROW_R_GLOB_START"
+
+    while true; do
+        if IFS= read -rsn1 -t 1 char; then
+            if [[ "$char" == $'\e' ]]; then
+                read -rsn2 -t 0.05 seq
+                if [[ "$seq" == "[<" ]]; then
+                    local mouse_event=""
+                    local mchar=""
+                    while IFS= read -rsn1 mchar; do
+                        mouse_event+="$mchar"
+                        [[ "$mchar" == "M" || "$mchar" == "m" ]] && break
+                    done
+                    if [[ "$mouse_event" =~ ^([0-9]+)\;([0-9]+)\;([0-9]+)([Mm])$ ]]; then
+                        local btn="${BASH_REMATCH[1]}"
+                        local cx="${BASH_REMATCH[2]}"
+                        local cy="${BASH_REMATCH[3]}"
+                        local action="${BASH_REMATCH[4]}"
+
+                        if [ "$cx" -ge "$RIGHT_START" ] && [ "$cx" -le "$RIGHT_END" ] && \
+                           { { [ "$cy" -ge "$ROW_R_ACT_START" ] && [ "$cy" -le "$row_opt_end" ]; } || [ "$cy" -eq "$row_done" ]; }; then
+                            if [ "$hover_row" -ne "$cy" ]; then
+                                [ "$hover_row" -ne 0 ] && render_right_refresh_pane "$hover_row" 0
+                                render_right_refresh_pane "$cy" 1
+                                hover_row="$cy"
+                            fi
+                            if [ "$btn" -eq 0 ] && [ "$action" == "M" ]; then
+                                if [ "$cy" -eq "$row_done" ]; then
+                                    break
+                                fi
+                                local chosen=$(( cy - ROW_R_ACT_START ))
+                                case "$chosen" in
+                                    0) save_refresh 5 ;;
+                                    1) save_refresh 10 ;;
+                                    2) save_refresh 30 ;;
+                                    3) save_refresh 60 ;;
+                                    4)
+                                        disable_mouse
+                                        prompt_in_dialog "Enter custom auto-refresh in seconds (0 = OFF, or [q] cancel): "
+                                        local c_sec=""
+                                        read -r c_sec
+                                        if [[ "$c_sec" =~ ^[0-9]+$ ]]; then
+                                            save_refresh "$c_sec"
+                                        fi
+                                        enable_mouse
+                                        ;;
+                                    5) save_refresh 0 ;;
+                                esac
+                                draw_refresh_pane_all
+                                render_right_refresh_pane "$cy" 1
+                                hover_row="$cy"
+                            fi
+                        else
+                            if [ "$hover_row" -ne 0 ]; then
+                                render_right_refresh_pane "$hover_row" 0
+                                hover_row=0
+                            fi
+                        fi
+                    fi
+                else
+                    break
+                fi
+            elif [[ "$char" == "" || "$char" =~ ^[QqIi]$ ]]; then
+                break
+            elif [[ "$char" == "1" ]]; then
+                save_refresh 5; draw_refresh_pane_all; hover_row=0
+            elif [[ "$char" == "2" ]]; then
+                save_refresh 10; draw_refresh_pane_all; hover_row=0
+            elif [[ "$char" == "3" ]]; then
+                save_refresh 30; draw_refresh_pane_all; hover_row=0
+            elif [[ "$char" == "4" ]]; then
+                save_refresh 60; draw_refresh_pane_all; hover_row=0
+            elif [[ "$char" == "0" ]]; then
+                save_refresh 0; draw_refresh_pane_all; hover_row=0
+            elif [[ "$char" == "5" ]]; then
+                disable_mouse
+                prompt_in_dialog "Enter custom auto-refresh in seconds (0 = OFF, or [q] cancel): "
+                local c_sec=""
+                read -r c_sec
+                if [[ "$c_sec" =~ ^[0-9]+$ ]]; then
+                    save_refresh "$c_sec"
+                fi
+                draw_refresh_pane_all
+                enable_mouse
+                hover_row=0
+            fi
+        fi
+    done
+
+    disable_mouse
+}

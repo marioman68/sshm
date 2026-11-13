@@ -7,6 +7,12 @@ measure_latency() {
     local port="${2:-22}"
     local ping_out
 
+    # Verify SSH TCP port is actually open first (prevents sleeping WoL NICs from faking ONLINE)
+    if ! timeout 1 bash -c "cat < /dev/null > /dev/tcp/${host}/${port}" 2>/dev/null; then
+        printf -- "--|OFFLINE"
+        return 1
+    fi
+
     if ping_out=$(ping -c 1 -W 1 "$host" 2>/dev/null); then
         local ms
         ms=$(echo "$ping_out" | grep -oP 'time=\K[0-9.]+' | head -n1)
@@ -18,13 +24,8 @@ measure_latency() {
         return 0
     fi
 
-    if timeout 1 bash -c "cat < /dev/null > /dev/tcp/${host}/${port}" 2>/dev/null; then
-        printf "TCP|ONLINE"
-        return 0
-    fi
-
-    printf -- "--|OFFLINE"
-    return 1
+    printf "TCP|ONLINE"
+    return 0
 }
 
 # Resolves a target hostname/IP and probes ARP cache for its hardware MAC address

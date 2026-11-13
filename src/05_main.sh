@@ -1,15 +1,66 @@
 # ==============================================================================
-# MODULE 05: Main Event Loop, Target Selection & Mouse/Keyboard Dispatcher
+# MODULE 05: Main Event Loop, Auto-Refresh Timer & Mouse/Keyboard Dispatcher
 # ==============================================================================
 
+draw_top_header_bar() {
+    local title="◆ SSH CONNECTION HUB (v${VERSION})"
+    [ "$IS_MOBILE" -eq 1 ] && title="◆ SSH HUB (v${VERSION})"
+
+    local ref_str="OFF"
+    [ "$AUTO_REFRESH_SEC" -gt 0 ] && ref_str="${AUTO_REFRESH_SEC}s"
+
+    local filter_badge="[Auto: ${ref_str}] [Tag: ${FILTER_TAG}]"
+    [ "$IS_MOBILE" -eq 1 ] && filter_badge="[${ref_str}] [${FILTER_TAG}]"
+
+    local pad_title=$(( TOTAL_W - ${#title} - ${#filter_badge} - 6 ))
+    [ "$pad_title" -lt 1 ] && pad_title=1
+
+    printf "\e[%d;2H%*s" "$((ROW_TOP + 1))" "$(( TOTAL_W - 2 ))" ""
+    printf "\e[%d;%dH${C_BORDER}│${C_RESET}" "$((ROW_TOP + 1))" "$TOTAL_W"
+    printf "\e[%d;4H${C_HEADER}${C_BOLD}%s${C_RESET}%*s${C_YELLOW}%s${C_RESET}" \
+        "$((ROW_TOP + 1))" "$title" "$pad_title" "" "$filter_badge"
+}
+
 refresh_right_inspector() {
+    draw_top_header_bar
     draw_pane_titles
     for ((r=ROW_R_INFO_1; r<=ROW_TWIN_END; r++)); do
         render_right_pane "$r" 0
     done
     local target_label="None"
     [ "$server_count" -gt 0 ] && target_label="${srv_names[$selected_idx]}"
-    prompt_in_dialog "Target: ${target_label}  |  [Enter/c] SSH  [n] Scan LAN  [a] Add  [q] Quit: "
+    prompt_in_dialog "Target: ${target_label}  |  [Enter/c] SSH  [n] Scan  [i] Timer  [q] Quit: "
+}
+
+# Flicker-free background status & latency update (preserves active mouse hover!)
+silent_auto_refresh() {
+    load_and_ping_servers
+    if [ "$selected_idx" -ge "$server_count" ]; then
+        selected_idx=$(( server_count > 0 ? server_count - 1 : 0 ))
+    fi
+
+    draw_top_header_bar
+    draw_pane_titles
+
+    for ((r=ROW_TWIN_START; r<ROW_LEGEND_SEP; r++)); do
+        if [ "$active_hover_side" == "L" ] && [ "$r" -eq "$active_hover_row" ]; then
+            render_left_pane "$r" "$active_hover_mode"
+        else
+            render_left_pane "$r" 0
+        fi
+    done
+
+    for ((r=ROW_R_INFO_1; r<=ROW_TWIN_END; r++)); do
+        if [ "$active_hover_side" == "R" ] && [ "$r" -eq "$active_hover_row" ]; then
+            render_right_pane "$r" 1
+        else
+            render_right_pane "$r" 0
+        fi
+    done
+
+    local target_label="None"
+    [ "$server_count" -gt 0 ] && target_label="${srv_names[$selected_idx]}"
+    prompt_in_dialog "Target: ${target_label}  |  [Enter/c] SSH  [n] Scan  [i] Timer  [q] Quit: "
 }
 
 select_target_server() {
@@ -27,15 +78,7 @@ select_target_server() {
 full_redraw() {
     load_and_ping_servers
     draw_wireframe
-
-    local title="◆ SSH CONNECTION HUB (v${VERSION})"
-    [ "$IS_MOBILE" -eq 1 ] && title="◆ SSH HUB (v${VERSION})"
-    local filter_badge="[Tag: ${FILTER_TAG}]"
-    local pad_title=$(( TOTAL_W - ${#title} - ${#filter_badge} - 6 ))
-    [ "$pad_title" -lt 1 ] && pad_title=1
-
-    printf "\e[%d;4H${C_HEADER}${C_BOLD}%s${C_RESET}%*s${C_YELLOW}%s${C_RESET}" \
-        "$((ROW_TOP + 1))" "$title" "$pad_title" "" "$filter_badge" 
+    draw_top_header_bar
 
     if [ "$selected_idx" -ge "$server_count" ]; then
         selected_idx=$(( server_count > 0 ? server_count - 1 : 0 ))
@@ -54,7 +97,7 @@ full_redraw() {
 
     local target_label="None"
     [ "$server_count" -gt 0 ] && target_label="${srv_names[$selected_idx]}"
-    prompt_in_dialog "Target: ${target_label}  |  [Enter/c] SSH  [n] Scan LAN  [a] Add  [q] Quit: "
+    prompt_in_dialog "Target: ${target_label}  |  [Enter/c] SSH  [n] Scan  [i] Timer  [q] Quit: "
 }
 
 dispatch_action() {
@@ -65,7 +108,8 @@ dispatch_action() {
         a|A) add_server_flow; full_redraw; return ;;
         n|N) scan_network_flow; full_redraw; return ;;
         p|P) theme_picker_flow; refresh_right_inspector; return ;;
-        r|R) full_redraw; return ;;
+        i|I) refresh_settings_flow; refresh_right_inspector; return ;;
+        r|R) silent_auto_refresh; return ;;
         f|F) cycle_filter_tag; selected_idx=0; full_redraw; return ;;
         q|Q) cleanup_and_exit ;;
     esac
@@ -91,6 +135,7 @@ dispatch_action() {
 
 # Initial Draw
 full_redraw
+idle_ticks=0
 
 # Main Interactive Event Loop
 while true; do
@@ -101,6 +146,7 @@ while true; do
         active_hover_side=""
         active_hover_row=0
         active_hover_mode=0
+        idle_ticks=0
         full_redraw
         continue
     fi
@@ -140,7 +186,7 @@ while true; do
                     if [ -n "$new_side" ]; then
                         if [ "$new_side" != "$active_hover_side" ] || [ "$cy" -ne "$active_hover_row" ] || [ "$new_mode" -ne "$active_hover_mode" ]; then
                             [ "$active_hover_side" == "L" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_left_pane "$active_hover_row" 0
-                            [ "$active_hover_side" == "R" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_right_pane "$active_hover_row" 0
+                            [ "$active_hover_side" == "R" ] && [ "$active_hover_row" -ge "$ROW_R_INFO_1" ] && render_right_pane "$active_hover_row" 0
 
                             [ "$new_side" == "L" ] && render_left_pane "$cy" "$new_mode"
                             [ "$new_side" == "R" ] && render_right_pane "$cy" 1
@@ -152,7 +198,7 @@ while true; do
                     else
                         if [ -n "$active_hover_side" ]; then
                             [ "$active_hover_side" == "L" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_left_pane "$active_hover_row" 0
-                            [ "$active_hover_side" == "R" ] && [ "$active_hover_row" -ge "$ROW_TWIN_START" ] && render_right_pane "$active_hover_row" 0
+                            [ "$active_hover_side" == "R" ] && [ "$active_hover_row" -ge "$ROW_R_INFO_1" ] && render_right_pane "$active_hover_row" 0
                             active_hover_side=""
                             active_hover_row=0
                             active_hover_mode=0
@@ -160,6 +206,7 @@ while true; do
                     fi
 
                     if [ "$btn" -eq 0 ] && [ "$action" == "M" ]; then
+                        idle_ticks=0
                         if [ "$new_side" == "L" ]; then
                             clicked_idx=$(( cy - ROW_TWIN_START ))
                             if [ "$clicked_idx" -ge 0 ] && [ "$clicked_idx" -lt "$server_count" ]; then
@@ -196,7 +243,15 @@ while true; do
                                     0) dispatch_action "a" ;;
                                     1) dispatch_action "n" ;;
                                     2) dispatch_action "p" ;;
-                                    3) dispatch_action "r" ;;
+                                    3)
+                                        # Clicking the left half of row 3 runs [r] Refresh Now;
+                                        # clicking the right half ("[i] Auto (10s)") opens the Timer Menu!
+                                        if [ "$cx" -ge $(( RIGHT_START + 22 )) ]; then
+                                            dispatch_action "i"
+                                        else
+                                            dispatch_action "r"
+                                        fi
+                                        ;;
                                     4) dispatch_action "q" ;;
                                 esac
                             fi
@@ -204,19 +259,33 @@ while true; do
                     fi
                 fi
             elif [[ "$rest" == "[A" ]]; then
+                idle_ticks=0
                 [ "$selected_idx" -gt 0 ] && select_target_server "$(( selected_idx - 1 ))"
             elif [[ "$rest" == "[B" ]]; then
+                idle_ticks=0
                 [ "$selected_idx" -lt "$(( server_count - 1 ))" ] && select_target_server "$(( selected_idx + 1 ))"
             fi
         elif [[ "$key" == "" ]]; then
+            idle_ticks=0
             [ "$server_count" -gt 0 ] && dispatch_action "c"
         elif [[ "$key" =~ ^[1-9]$ ]]; then
+            idle_ticks=0
             num_idx=$(( key - 1 ))
             if [ "$num_idx" -lt "$server_count" ]; then
                 select_target_server "$num_idx"
             fi
         else
+            idle_ticks=0
             dispatch_action "$key"
+        fi
+    else
+        # 1-second read timeout reached: increment background auto-refresh timer!
+        if [ "${AUTO_REFRESH_SEC:-10}" -gt 0 ]; then
+            ((idle_ticks++))
+            if [ "$idle_ticks" -ge "$AUTO_REFRESH_SEC" ]; then
+                idle_ticks=0
+                silent_auto_refresh
+            fi
         fi
     fi
 done

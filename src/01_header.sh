@@ -126,7 +126,32 @@ apply_theme() {
     C_HEADER="${THEME_HEADERS[$idx]}"
 }
 
-load_saved_theme() {
+load_saved_theme
+
+# Auto-Refresh Configuration & Persistence (0 = OFF, default = 10s)
+REFRESH_FILE="$HOME/.ssh_hub_refresh"
+AUTO_REFRESH_SEC=10
+
+load_saved_refresh() {
+    if [ -f "$REFRESH_FILE" ]; then
+        local val
+        val=$(cat "$REFRESH_FILE" 2>/dev/null | tr -d '[:space:]')
+        if [[ "$val" =~ ^[0-9]+$ ]]; then
+            AUTO_REFRESH_SEC="$val"
+        fi
+    fi
+}
+
+save_refresh() {
+    local val="$1"
+    if [[ "$val" =~ ^[0-9]+$ ]]; then
+        AUTO_REFRESH_SEC="$val"
+        echo "$val" > "$REFRESH_FILE"
+    fi
+}
+
+load_saved_refresh
+() {
     if [ -f "$THEME_FILE" ]; then
         local saved
         saved=$(cat "$THEME_FILE" 2>/dev/null | tr -d '[:space:]')
@@ -143,6 +168,31 @@ save_theme() {
 }
 
 load_saved_theme
+
+# Auto-Refresh Configuration & Persistence (0 = OFF, default = 10s)
+REFRESH_FILE="$HOME/.ssh_hub_refresh"
+AUTO_REFRESH_SEC=10
+
+load_saved_refresh() {
+    if [ -f "$REFRESH_FILE" ]; then
+        local val
+        val=$(cat "$REFRESH_FILE" 2>/dev/null | tr -d '[:space:]')
+        if [[ "$val" =~ ^[0-9]+$ ]]; then
+            AUTO_REFRESH_SEC="$val"
+        fi
+    fi
+}
+
+save_refresh() {
+    local val="$1"
+    if [[ "$val" =~ ^[0-9]+$ ]]; then
+        AUTO_REFRESH_SEC="$val"
+        echo "$val" > "$REFRESH_FILE"
+    fi
+}
+
+load_saved_refresh
+
 
 trap cleanup_and_exit SIGINT SIGTERM
 trap 'RESIZE_TRIGGERED=1' SIGWINCH

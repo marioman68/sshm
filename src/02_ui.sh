@@ -371,7 +371,13 @@ render_right_pane() {
             0) p1="${C_GREEN}[a]${C_RESET}${bg}";  p2="   Add New Server Profile";                  raw_text="  [a]   Add New Server Profile" ;;
             1) p1="${C_PURPLE}[n]${C_RESET}${bg}"; p2="   Scan Local Network (Auto-Discover SSH)";  raw_text="  [n]   Scan Local Network (Auto-Discover SSH)" ;;
             2) p1="${C_YELLOW}[p]${C_RESET}${bg}"; p2="   Border & UI Theme (${cur_t_short})";      raw_text="  [p]   Border & UI Theme (${cur_t_short})" ;;
-            3) p1="${C_BLUE}[r]${C_RESET}${bg}";   p2="   Refresh All Server Statuses";             raw_text="  [r]   Refresh All Server Statuses" ;;
+            3)
+                local ref_lbl="${AUTO_REFRESH_SEC}s"
+                [ "$AUTO_REFRESH_SEC" -eq 0 ] && ref_lbl="OFF"
+                p1="${C_BLUE}[r]${C_RESET}${bg}"
+                p2="   Refresh Now  •  ${C_CYAN}[i]${C_RESET}${bg} Auto (${ref_lbl})"
+                raw_text="  [r]   Refresh Now  •  [i] Auto (${ref_lbl})"
+                ;;
             4) p1="${C_RED}[q]${C_RESET}${bg}";    p2="   Exit SSH Connection Hub";                 raw_text="  [q]   Exit SSH Connection Hub" ;;
         esac
 
@@ -590,6 +596,84 @@ render_right_theme_pane() {
             raw_text="  [x]${clean_p2}"
             p2="${clean_p2}"
         fi
+        local pad=$(( RIGHT_INNER_W - ${#raw_text} ))
+        [ "$pad" -lt 0 ] && pad=0
+        printf "${bg}  %b%b%*s${C_RESET}" "$p1" "$p2" "$pad" ""
+    else
+        printf "%*s" "$RIGHT_INNER_W" ""
+    fi
+    printf "\e[%d;%dH${C_BORDER}│${C_RESET}" "$row" "$RIGHT_END"
+}
+
+
+render_right_refresh_pane() {
+    local row="$1"
+    local is_hover="$2"
+
+    if [ "$row" -eq "$ROW_R_SEP_1" ] || [ "$row" -eq "$ROW_R_SEP_2" ]; then
+        draw_separator "$row" "$RIGHT_START" "$RIGHT_END"
+        return
+    fi
+
+    local col_start=$(( RIGHT_START + 1 ))
+    printf "\e[%d;%dH" "$row" "$col_start"
+
+    local cur_lbl="${AUTO_REFRESH_SEC} Seconds"
+    [ "$AUTO_REFRESH_SEC" -eq 0 ] && cur_lbl="OFF (Manual Only)"
+
+    if [ "$row" -eq "$ROW_R_INFO_1" ]; then
+        local raw="  ◆ AUTO-REFRESH TIMER SETTINGS"
+        local pad=$(( RIGHT_INNER_W - ${#raw} ))
+        [ "$pad" -lt 0 ] && pad=0
+        printf "  ${C_HEADER}${C_BOLD}◆ AUTO-REFRESH TIMER SETTINGS${C_RESET}%*s" "$pad" ""
+    elif [ "$row" -eq "$ROW_R_INFO_2" ]; then
+        local raw="  Current Interval : ${cur_lbl}"
+        local pad=$(( RIGHT_INNER_W - ${#raw} ))
+        [ "$pad" -lt 0 ] && pad=0
+        printf "  ${C_MUTED}Current Interval :${C_RESET} ${C_CYAN}${C_BOLD}%s${C_RESET}%*s" "$cur_lbl" "$pad" ""
+    elif [ "$row" -ge "$ROW_R_ACT_START" ] && [ "$row" -le "$(( ROW_R_ACT_START + 5 ))" ]; then
+        local opt_idx=$(( row - ROW_R_ACT_START ))
+        local bg=""
+        [ "$is_hover" -eq 1 ] && bg="${BG_HOVER}"
+
+        local key_lbl=""
+        local desc_lbl=""
+        local match_val=-1
+
+        case "$opt_idx" in
+            0) key_lbl="[1]"; desc_lbl="Every 5 Seconds (Fast)";         match_val=5 ;;
+            1) key_lbl="[2]"; desc_lbl="Every 10 Seconds (Default)";     match_val=10 ;;
+            2) key_lbl="[3]"; desc_lbl="Every 30 Seconds (Relaxed)";     match_val=30 ;;
+            3) key_lbl="[4]"; desc_lbl="Every 60 Seconds (1 Minute)";    match_val=60 ;;
+            4) key_lbl="[5]"; desc_lbl="Enter Custom Interval (Sec)..."; match_val=-2 ;;
+            5) key_lbl="[0]"; desc_lbl="Turn OFF Auto-Refresh";          match_val=0 ;;
+        esac
+
+        local mark="   "
+        local act_tag=""
+        if [ "$AUTO_REFRESH_SEC" -eq "$match_val" ]; then
+            mark=" ${C_GREEN}${C_BOLD}✓${C_RESET}${bg} "
+            act_tag=" (Active)"
+        elif [ "$opt_idx" -eq 4 ] && [ "$AUTO_REFRESH_SEC" -ne 0 ] && [ "$AUTO_REFRESH_SEC" -ne 5 ] && [ "$AUTO_REFRESH_SEC" -ne 10 ] && [ "$AUTO_REFRESH_SEC" -ne 30 ] && [ "$AUTO_REFRESH_SEC" -ne 60 ]; then
+            mark=" ${C_GREEN}${C_BOLD}✓${C_RESET}${bg} "
+            act_tag=" (${AUTO_REFRESH_SEC}s Active)"
+        fi
+
+        local raw_text="   ✓ ${key_lbl}  ${desc_lbl}${act_tag}"
+        local pad=$(( RIGHT_INNER_W - ${#raw_text} ))
+        [ "$pad" -lt 0 ] && pad=0
+
+        local k_col="${C_CYAN}"
+        [ "$opt_idx" -eq 5 ] && k_col="${C_RED}"
+
+        printf "${bg}%b%b%s${C_RESET}${bg}  ${C_BOLD}%s${C_RESET}${bg}${C_MUTED}%s${C_RESET}${bg}%*s${C_RESET}" \
+            "$mark" "$k_col" "$key_lbl" "$desc_lbl" "$act_tag" "$pad" ""
+    elif [ "$row" -eq "$ROW_R_GLOB_START" ]; then
+        local bg=""
+        [ "$is_hover" -eq 1 ] && bg="${BG_HOVER}"
+        local p1="${C_GREEN}[q/Enter]${C_RESET}${bg}"
+        local p2="  ${C_BOLD}Save & Return to Inspector${C_RESET}${bg}"
+        local raw_text="  [q/Enter]  Save & Return to Inspector"
         local pad=$(( RIGHT_INNER_W - ${#raw_text} ))
         [ "$pad" -lt 0 ] && pad=0
         printf "${bg}  %b%b%*s${C_RESET}" "$p1" "$p2" "$pad" ""
