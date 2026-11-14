@@ -77,11 +77,11 @@ expand_path() {
 
 # Mouse & Terminal Helpers
 enable_mouse() {
-    printf "\e[?1003h\e[?1015h\e[?1006h\e[?25l"
+    printf "\e[?1003h\e[?1015h\e[?25l"
 }
 
 disable_mouse() {
-    printf "\e[?1003l\e[?1015l\e[?1006l\e[?25h"
+    printf "\e[?1003l\e[?1015l\e[?25h"
 }
 
 cleanup_and_exit() {

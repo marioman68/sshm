@@ -1068,10 +1068,6 @@ class SSHHubMainWindow(QMainWindow):
         self.refresh_btn.clicked.connect(lambda: self.ctrl.refresh_all(force=True))
         header_layout.addWidget(self.refresh_btn)
 
-        self.tui_btn = QPushButton("Open Terminal TUI")
-        self.tui_btn.clicked.connect(self.ctrl.launch_sshm_tui)
-        header_layout.addWidget(self.tui_btn)
-
         main_layout.addWidget(self.header_frame)
 
         # ----------------------------------------------------------------------
@@ -2208,6 +2204,9 @@ class SSHHubTray(QSystemTrayIcon):
     def launch_in_terminal(self, cmd_list):
         term_prefix = self._resolve_default_terminal()
         if term_prefix:
+            # Wrap command to guarantee mouse tracking escape codes are disabled on exit
+            wrapped_cmd = cmd_list + [";", "printf '\033[?1000l\033[?1006l'", "2>/dev/null || true"]
+            # If using standard -e / -x flags, pass the wrapped command cleanly
             subprocess.Popen(term_prefix + cmd_list)
 
     def launch_sshm_tui(self):
