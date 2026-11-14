@@ -1,4 +1,22 @@
 #!/usr/bin/env python3
+"""
+================================================================================
+sshm.py — SSH Connection Hub (Interactive Python Curses Split-Pane TUI)
+================================================================================
+Architecture Overview:
+  - Renders a 256-color split-pane terminal dashboard using Python's built-in
+    `curses` library (Left Pane: Server Nodes & Status; Right Pane: Actions).
+  - Shares configuration seamlessly with `sshm-tray.py`:
+      * ~/.ssh_servers              : Pipe-delimited server profiles
+      * ~/.ssh_custom_commands.json : Per-server saved shell commands
+      * ~/.config/sshm_tui.json     : TUI theme & auto-refresh preferences
+      * /dev/shm/sshm_telemetry.json: In-memory RAM disk cache for live telemetry
+  - Prevents terminal mouse escape sequence leaks (^[[<35;...M) in Konsole/Xterm
+    by managing SGR mouse mode (1006h/1003h) strictly inside curses and forcing
+    complete mouse reporting teardown whenever suspending or exiting to shell.
+================================================================================
+"""
+
 import curses
 import os
 import sys
@@ -9,9 +27,12 @@ import subprocess
 import concurrent.futures
 from pathlib import Path
 
-# Set short ESC delay so pressing Esc closes modals instantaneously!
+# Shorten curses ESC key delay (default is 1000ms) so pressing Esc closes modals instantly
 os.environ.setdefault("ESCDELAY", "25")
 
+# ==============================================================================
+# 1. PATHS, CONSTANTS & 256-COLOR THEMES
+# ==============================================================================
 CONFIG_FILE = Path.home() / ".ssh_servers"
 CUSTOM_CMD_FILE = Path.home() / ".ssh_custom_commands.json"
 TELEM_FILE = Path("/dev/shm/sshm_telemetry.json")
@@ -19,7 +40,7 @@ MOUNT_DIR = Path.home() / "Network_Places"
 REMOTEVIEW_DIR = Path.home() / ".local/share/remoteview"
 PREFS_FILE = Path.home() / ".config/sshm_tui.json"
 
-# 256-color themes: (Name, Border_256, Highlight_256, Accent_256)
+# 256-color theme definitions: (Theme Name, Border_Color, Highlight_Color, Accent_Color)
 THEMES = [
     ("Oceanic Blue", 33, 51, 39),
     ("Cyberpunk Neon", 198, 51, 201),
@@ -28,13 +49,25 @@ THEMES = [
     ("Nordic Frost", 68, 117, 110),
 ]
 
+
+# ==============================================================================
+# 2. TERMINAL STATE & SGR MOUSE MANAGEMENT
+# ==============================================================================
 def reset_terminal_mouse():
-    """Disable all X11/SGR mouse reporting modes when leaving the TUI."""
+    """
+    Force the terminal emulator (Konsole, Ghostty, Xterm, etc.) to disable all
+    X11/SGR mouse reporting modes. Called before running external commands and on exit
+    so mouse movements never print raw coordinate garbage onto the user's shell.
+    """
     sys.stdout.write("\033[?1000l\033[?1002l\033[?1003l\033[?1006l\033[?1015l")
     sys.stdout.flush()
 
+
 def enable_tui_mouse():
-    """Enable click, double-click, and live hover motion inside curses."""
+    """
+    Enable mouse click, double-click, and live cursor hover motion tracking inside
+    the active curses session using Xterm SGR extended coordinates (1003h + 1006h).
+    """
     try:
         curses.mousemask(
             curses.BUTTON1_CLICKED
@@ -48,7 +81,12 @@ def enable_tui_mouse():
     except Exception:
         pass
 
+
+# ==============================================================================
+# 3. CONFIGURATION, TELEMETRY & SFTP MOUNT HELPERS
+# ==============================================================================
 def load_prefs():
+    """Load saved TUI preferences (theme index and auto-refresh interval)."""
     if PREFS_FILE.exists():
         try:
             return json.loads(PREFS_FILE.read_text())
@@ -56,14 +94,21 @@ def load_prefs():
             pass
     return {"theme_idx": 0, "auto_refresh": 10}
 
+
 def save_prefs(prefs):
+    """Persist TUI theme and auto-refresh settings to ~/.config/sshm_tui.json."""
     try:
         PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
         PREFS_FILE.write_text(json.dumps(prefs))
     except Exception:
         pass
 
+
 def load_servers():
+    """
+    Parse ~/.ssh_servers into a list of server dictionaries.
+    Format per line: Name|User|Host|Port|Tag|MAC|KeyPath
+    """
     servers = []
     if not CONFIG_FILE.exists():
         return servers
@@ -84,13 +129,20 @@ def load_servers():
         })
     return servers
 
+
 def save_servers(servers):
+    """Write the current list of server profiles back to ~/.ssh_servers."""
     lines = []
     for s in servers:
         lines.append(f"{s['name']}|{s['user']}|{s['host']}|{s['port']}|{s['tag']}|{s['mac']}|{s['key']}")
     CONFIG_FILE.write_text("\n".join(lines) + ("\n" if lines else ""))
 
+
 def read_telemetry():
+    """
+    Read live server CPU/RAM/Uptime metrics from the shared RAM-disk cache
+    (/dev/shm/sshm_telemetry.json) written by sshm-tray or the telemetry listener.
+    """
     if not TELEM_FILE.exists():
         return {}
     try:
@@ -98,13 +150,20 @@ def read_telemetry():
     except Exception:
         return {}
 
+
 def is_mounted(srv):
+    """Check if the server currently has an active SFTP shortcut in Network Places."""
     safe_name = srv["name"].replace(" ", "_").replace("/", "_")
     dfile = MOUNT_DIR / f"{safe_name}.desktop"
     rfile = REMOTEVIEW_DIR / f"{safe_name}.desktop"
     return dfile.exists() or rfile.exists()
 
+
 def toggle_mount(srv):
+    """
+    Create or remove KDE Dolphin / FreeDesktop SFTP `.desktop` link files
+    in ~/Network_Places and ~/.local/share/remoteview.
+    """
     MOUNT_DIR.mkdir(parents=True, exist_ok=True)
     REMOTEVIEW_DIR.mkdir(parents=True, exist_ok=True)
     safe_name = srv["name"].replace(" ", "_").replace("/", "_")
@@ -129,7 +188,12 @@ def toggle_mount(srv):
         rfile.chmod(0o755)
         return True, f"Mounted '{srv['name']}' (/home/{srv['user']}) to Network Places!"
 
+
+# ==============================================================================
+# 4. NETWORK PROBING, SUBPROCESS EXECUTION & WOL UTILITIES
+# ==============================================================================
 def measure_tcp_ms(host, port):
+    """Measure TCP handshake latency (in milliseconds) to a target host:port."""
     t0 = time.monotonic()
     try:
         with socket.create_connection((host, int(port)), timeout=0.55):
@@ -138,7 +202,9 @@ def measure_tcp_ms(host, port):
     except Exception:
         return False, "--"
 
+
 def check_all_statuses(servers):
+    """Concurrently probe all configured servers for TCP SSH reachability and latency."""
     results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=16) as ex:
         futs = {
@@ -153,7 +219,12 @@ def check_all_statuses(servers):
                 results[k] = (False, "--")
     return results
 
+
 def suspend_and_run(stdscr, cmd_list, pause=False, header_msg=None):
+    """
+    Cleanly suspend the curses TUI, disable mouse reporting, execute an interactive
+    shell command (such as `ssh`, `sftp`, or `ssh-copy-id`), and restore the TUI.
+    """
     reset_terminal_mouse()
     curses.def_prog_mode()
     curses.endwin()
@@ -180,7 +251,37 @@ def suspend_and_run(stdscr, cmd_list, pause=False, header_msg=None):
     stdscr.clear()
     stdscr.refresh()
 
+
+def send_wol(mac_str):
+    """Construct and broadcast a raw UDP Wake-on-LAN (WoL) magic packet to port 9."""
+    mac = mac_str.replace(":", "").replace("-", "").strip()
+    if len(mac) != 12:
+        return False, "Invalid or missing MAC address!"
+    try:
+        data = bytes.fromhex("FF" * 6 + mac * 16)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            s.sendto(data, ("255.255.255.255", 9))
+        return True, f"Sent Wake-on-LAN magic packet to {mac_str}!"
+    except Exception as e:
+        return False, f"WoL Error: {e}"
+
+
+def get_ssh_base(srv):
+    """Build the base SSH command list including custom port and optional identity key."""
+    cmd = ["ssh", "-p", str(srv["port"])]
+    if srv["key"]:
+        kp = os.path.expanduser(srv["key"])
+        if os.path.exists(kp):
+            cmd += ["-i", kp]
+    return cmd
+
+
+# ==============================================================================
+# 5. CURSES DRAWING PRIMITIVES & UI HELPERS
+# ==============================================================================
 def safe_addstr(win, y, x, text, attr=0):
+    """Safely render a string inside a curses window without raising out-of-bounds errors."""
     h, w = win.getmaxyx()
     if 0 <= y < h and 0 <= x < w:
         max_len = w - x - 1
@@ -190,7 +291,9 @@ def safe_addstr(win, y, x, text, attr=0):
             except curses.error:
                 pass
 
+
 def draw_box(win, y, x, h, w, title, border_attr, title_attr, fill_bg=False):
+    """Draw a bordered rectangular panel with an optional title in its top border."""
     if h < 2 or w < 2:
         return
     if fill_bg:
@@ -219,7 +322,9 @@ def draw_box(win, y, x, h, w, title, border_attr, title_attr, fill_bg=False):
         except curses.error:
             pass
 
+
 def draw_hsep(win, y, x, w, border_attr):
+    """Draw a horizontal divider line connected to left and right box borders (├────┤)."""
     try:
         win.attron(border_attr)
         win.addch(y, x, curses.ACS_LTEE)
@@ -229,20 +334,23 @@ def draw_hsep(win, y, x, w, border_attr):
     except curses.error:
         pass
 
+
 def fill_hover_bar(win, y, x1, x2, attr):
+    """Fill a horizontal highlight bar across a selectable row when hovered by mouse."""
     width = max(0, x2 - x1 + 1)
     if width > 0:
         safe_addstr(win, y, x1, " " * width, attr)
 
+
 # ==============================================================================
-# RICH INTERACTIVE OVERLAY MODALS (Multi-Field Form & Choice Dialogs)
+# 6. RICH INTERACTIVE OVERLAY MODALS (Multi-Field Form & Choice Cards)
 # ==============================================================================
 def show_form_modal(stdscr, title, subtitle, fields, submit_label="✔ Save Changes", cancel_label="✖ Cancel (Esc)"):
     """
-    Render a rich multi-field overlay modal with mouse support, live in-place editing,
-    Save / Cancel buttons, and instant Esc cancellation.
-    `fields`: list of (key, label, initial_value, placeholder_hint)
-    Returns: dict of {key: value} on Save, or None on Cancel/Esc.
+    Render a rich multi-field overlay modal with mouse support, live in-place cursor
+    editing, clickable Save / Cancel buttons, and instant Esc cancellation.
+      - `fields`: list of tuples -> (key, label, initial_value, placeholder_hint)
+      - Returns: dict of {key: value} on Save, or None if cancelled.
     """
     h, w = stdscr.getmaxyx()
     num_f = len(fields)
@@ -253,9 +361,9 @@ def show_form_modal(stdscr, title, subtitle, fields, submit_label="✔ Save Chan
 
     values = [str(f[2] or "") for f in fields]
     cursors = [len(v) for v in values]
-    # focus_idx: 0..num_f-1 are text fields, num_f = Submit button, num_f+1 = Cancel button
+    # focus_idx: 0..num_f-1 = text fields, num_f = Submit button, num_f+1 = Cancel button
     focus_idx = 0
-    hov_item = None  # ("field", i) or ("btn", 0/1)
+    hov_item = None
 
     c_border = curses.color_pair(1) | curses.A_BOLD
     c_cyan   = curses.color_pair(2) | curses.A_BOLD
@@ -271,7 +379,7 @@ def show_form_modal(stdscr, title, subtitle, fields, submit_label="✔ Save Chan
     stdscr.timeout(80)
 
     while True:
-        # Draw shadow & modal frame directly onto stdscr (preserving background dashboard!)
+        # Draw subtle drop-shadow & modal box over the existing dashboard
         for r in range(by + 1, min(h - 1, by + box_h + 1)):
             safe_addstr(stdscr, r, bx + 2, " " * min(w - bx - 3, box_w), curses.A_DIM)
 
@@ -292,12 +400,10 @@ def show_form_modal(stdscr, title, subtitle, fields, submit_label="✔ Save Chan
             is_focused = (focus_idx == i)
             is_hovered = (hov_item == ("field", i))
 
-            # Field label
             ptr = "▸ " if is_focused else "  "
             safe_addstr(stdscr, fy, bx + 2, ptr, c_cyan if is_focused else c_gray)
             safe_addstr(stdscr, fy, bx + 4, f"{lbl:<15}:", c_cyan if (is_focused or is_hovered) else c_white)
 
-            # Input box background
             val_str = values[i]
             bg_attr = c_hov if (is_focused or is_hovered) else curses.A_UNDERLINE
             safe_addstr(stdscr, fy, inp_x, " " * inp_w, bg_attr)
@@ -308,13 +414,13 @@ def show_form_modal(stdscr, title, subtitle, fields, submit_label="✔ Save Chan
             elif hint and not is_focused:
                 safe_addstr(stdscr, fy, inp_x + 1, f"({hint})"[:inp_w - 2], c_gray)
 
-            # Draw active block cursor inside focused text field
+            # Render block cursor on active text field
             if is_focused:
                 cur_pos = min(cursors[i], inp_w - 2)
                 ch_under = val_str[cursors[i]] if cursors[i] < len(val_str) else " "
                 safe_addstr(stdscr, fy, inp_x + 1 + cur_pos, ch_under, curses.A_REVERSE | curses.A_BOLD)
 
-        # Bottom divider + Buttons + Help Footer
+        # Render Save & Cancel buttons at bottom of modal
         btn_sep_y = by + box_h - 3
         draw_hsep(stdscr, btn_sep_y, bx, box_w, c_border)
 
@@ -339,8 +445,7 @@ def show_form_modal(stdscr, title, subtitle, fields, submit_label="✔ Save Chan
         ch = stdscr.getch()
         if ch == -1:
             continue
-
-        if ch == 27:  # ESC key pressed!
+        if ch == 27:  # ESC key cancels immediately
             return None
 
         if ch == curses.KEY_MOUSE:
@@ -357,7 +462,6 @@ def show_form_modal(stdscr, title, subtitle, fields, submit_label="✔ Save Chan
 
                 is_click = bool(bstate & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED | curses.BUTTON1_DOUBLE_CLICKED))
                 if is_click:
-                    # Clicking outside modal box does nothing (or clicking Cancel closes)
                     if hov_item and hov_item[0] == "field":
                         focus_idx = hov_item[1]
                         cursors[focus_idx] = len(values[focus_idx])
@@ -369,9 +473,9 @@ def show_form_modal(stdscr, title, subtitle, fields, submit_label="✔ Save Chan
                 pass
             continue
 
-        if ch in (curses.KEY_DOWN, 9):  # Down or Tab
+        if ch in (curses.KEY_DOWN, 9):
             focus_idx = (focus_idx + 1) % (num_f + 2)
-        elif ch in (curses.KEY_UP, curses.KEY_BTAB):  # Up or Shift-Tab
+        elif ch in (curses.KEY_UP, curses.KEY_BTAB):
             focus_idx = (focus_idx - 1) % (num_f + 2)
         elif ch in (curses.KEY_ENTER, 10, 13):
             if focus_idx == num_f + 1:
@@ -379,7 +483,6 @@ def show_form_modal(stdscr, title, subtitle, fields, submit_label="✔ Save Chan
             else:
                 return {fields[i][0]: values[i].strip() for i in range(num_f)}
         elif 0 <= focus_idx < num_f:
-            # Handle text editing in active field
             cur = cursors[focus_idx]
             val = values[focus_idx]
             if ch in (curses.KEY_BACKSPACE, 127, 8):
@@ -393,11 +496,11 @@ def show_form_modal(stdscr, title, subtitle, fields, submit_label="✔ Save Chan
                 cursors[focus_idx] = max(0, cur - 1)
             elif ch == curses.KEY_RIGHT:
                 cursors[focus_idx] = min(len(val), cur + 1)
-            elif ch == curses.KEY_HOME or ch == 1:  # Ctrl+A
+            elif ch == curses.KEY_HOME or ch == 1:
                 cursors[focus_idx] = 0
-            elif ch == curses.KEY_END or ch == 5:   # Ctrl+E
+            elif ch == curses.KEY_END or ch == 5:
                 cursors[focus_idx] = len(val)
-            elif ch == 21:  # Ctrl+U clears field
+            elif ch == 21:  # Ctrl+U clears line
                 values[focus_idx] = ""
                 cursors[focus_idx] = 0
             elif 32 <= ch <= 126:
@@ -411,9 +514,9 @@ def show_form_modal(stdscr, title, subtitle, fields, submit_label="✔ Save Chan
 
 def show_choice_modal(stdscr, title, subtitle, options):
     """
-    Render a rich interactive menu modal with hoverable options and a Cancel button.
-    `options`: list of (code, key_badge, label_text, desc_text, color_pair)
-    Returns selected `code` or None on Cancel/Esc.
+    Render an interactive choice list modal with mouse hover highlights and a Cancel button.
+      - `options`: list of tuples -> (code, key_badge, label_text, desc_text, color_pair)
+      - Returns: selected `code`, or None if cancelled via Esc / Cancel button.
     """
     h, w = stdscr.getmaxyx()
     box_w = min(w - 4, 68)
@@ -513,28 +616,14 @@ def show_choice_modal(stdscr, title, subtitle, options):
                     return code
 
 
-def send_wol(mac_str):
-    mac = mac_str.replace(":", "").replace("-", "").strip()
-    if len(mac) != 12:
-        return False, "Invalid or missing MAC address!"
-    try:
-        data = bytes.fromhex("FF" * 6 + mac * 16)
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            s.sendto(data, ("255.255.255.255", 9))
-        return True, f"Sent Wake-on-LAN magic packet to {mac_str}!"
-    except Exception as e:
-        return False, f"WoL Error: {e}"
-
-def get_ssh_base(srv):
-    cmd = ["ssh", "-p", str(srv["port"])]
-    if srv["key"]:
-        kp = os.path.expanduser(srv["key"])
-        if os.path.exists(kp):
-            cmd += ["-i", kp]
-    return cmd
-
+# ==============================================================================
+# 7. TELEMETRY AGENT DEPLOYMENT & LAN SUBNET SCANNER
+# ==============================================================================
 def deploy_or_remove_agent(stdscr, srv):
+    """
+    Open the Telemetry Agent Manager modal to deploy, inspect, or remove the
+    lightweight systemd user service (`sshm-agent.service`) on a remote Linux host.
+    """
     opts = [
         ("1", "[1]", "Deploy / Update Agent", "Install systemd service & start live stats", curses.color_pair(3)),
         ("2", "[2]", "Check Agent Status", "View remote systemctl status output", curses.color_pair(2)),
@@ -611,7 +700,12 @@ def deploy_or_remove_agent(stdscr, srv):
         return f"Removed Telemetry Agent from '{srv['name']}'."
     return ""
 
+
 def run_lan_scan(stdscr, servers):
+    """
+    Prompt for a /24 subnet prefix and scan all 254 IP addresses in parallel
+    using ThreadPoolExecutor, allowing 1-click profile creation for discovered hosts.
+    """
     res = show_form_modal(
         stdscr,
         "SCAN LOCAL NETWORK (AUTO-DISCOVER SSH)",
@@ -628,7 +722,6 @@ def run_lan_scan(stdscr, servers):
     subnet = res["subnet"].rstrip(".")
     scan_port = int(res["port"]) if res.get("port", "").isdigit() else 22
 
-    # Show a sleek scanning splash box
     h, w = stdscr.getmaxyx()
     draw_box(stdscr, h // 2 - 2, w // 2 - 26, 5, 52, "◆ SCANNING LAN...", curses.color_pair(1), curses.color_pair(2), fill_bg=True)
     safe_addstr(stdscr, h // 2, w // 2 - 22, f"Probing {subnet}.1 - .254 on port {scan_port}...", curses.color_pair(4) | curses.A_BOLD)
@@ -669,7 +762,6 @@ def run_lan_scan(stdscr, servers):
     if not picked_ip:
         return f"LAN Scan complete ({len(found)} active hosts found)."
 
-    # Open the Add Server modal pre-filled with the discovered IP!
     new_data = show_form_modal(
         stdscr,
         "ADD DISCOVERED SERVER PROFILE",
@@ -698,7 +790,12 @@ def run_lan_scan(stdscr, servers):
         return f"Added discovered server '{new_data['name']}' ({new_data['host']})!"
     return "Discovered host addition cancelled."
 
+
+# ==============================================================================
+# 8. MAIN CURSES SPLIT-PANE DASHBOARD LOOP
+# ==============================================================================
 def tui_main(stdscr):
+    """Main event, rendering, keyboard, and mouse loop for the Split-Pane TUI."""
     curses.curs_set(0)
     curses.noecho()
     curses.cbreak()
@@ -713,23 +810,24 @@ def tui_main(stdscr):
     auto_refresh = prefs.get("auto_refresh", 10)
 
     def setup_colors(idx):
+        """Initialize 256-color pairs for borders, status badges, hover bars, and modals."""
         _, c_border, c_hi, c_acc = THEMES[idx]
         if curses.COLORS >= 256:
-            curses.init_pair(1, c_border, -1)  # Royal Blue Box Borders (33)
-            curses.init_pair(2, c_hi, -1)      # Bright Cyan Highlight/Titles (51)
+            curses.init_pair(1, c_border, -1)  # Box Borders
+            curses.init_pair(2, c_hi, -1)      # Bright Highlight / Titles
             curses.init_pair(3, 46, -1)        # Vibrant Green (Online / [c] / [g] / [a])
             curses.init_pair(4, 226, -1)       # Vibrant Yellow (Auto / Tag / RAM / [k] / [p])
             curses.init_pair(5, 196, -1)       # Bright Red (Offline / [d] / [q])
             curses.init_pair(6, 141, -1)       # Vibrant Purple (CPU dot / [t] / [n])
             curses.init_pair(7, 244, -1)       # Muted Gray (Labels, Unmounted, Hints)
-            curses.init_pair(8, c_acc, -1)     # Endpoint / Up / Connect text (39)
+            curses.init_pair(8, c_acc, -1)     # Endpoint / Up / Connect text
             curses.init_pair(9, 255, -1)       # Crisp White ([w] / standard text)
-            curses.init_pair(10, 255, 24)      # Standard Row Hover (Crisp White on Deep Navy)
+            curses.init_pair(10, 255, 24)      # Standard Row Hover (White on Deep Navy)
             curses.init_pair(11, 51, 24)       # Cyan Accent on Deep Navy Hover
             curses.init_pair(12, 46, 24)       # Green Accent on Deep Navy Hover
             curses.init_pair(13, 226, 127)     # Diamond Hover (Bright Gold on Magenta Pill)
-            curses.init_pair(14, 16, 46)       # Modal Save Button Active (Black on Bright Green)
-            curses.init_pair(15, 255, 160)     # Modal Cancel Button Active (White on Crimson Red)
+            curses.init_pair(14, 16, 46)       # Modal Save Button Active (Black on Green)
+            curses.init_pair(15, 255, 160)     # Modal Cancel Button Active (White on Red)
         else:
             curses.init_pair(1, curses.COLOR_BLUE, -1)
             curses.init_pair(2, curses.COLOR_CYAN, -1)
@@ -764,11 +862,13 @@ def tui_main(stdscr):
     click_zones = []
 
     def get_hovered_zone(my, mx):
+        """Return the action tuple for the UI element currently under the mouse cursor."""
         for zy, zx1, zx2, act, arg in click_zones:
             if my == zy and zx1 <= mx <= zx2:
                 return (act, arg, zy, zx1, zx2)
         return (None, None, -1, -1, -1)
 
+    # Contextual descriptions shown in the bottom status bar when hovering over actions
     HOVER_HELP = {
         "c": "Launch an interactive SSH session (automatically attaches/creates tmux)",
         "b": "Mount & open this server's remote filesystem in your desktop File Manager",
@@ -789,6 +889,7 @@ def tui_main(stdscr):
     }
 
     def trigger_action(act, arg=None):
+        """Dispatch keyboard or mouse actions for the currently targeted server or global hub."""
         nonlocal selected_idx, theme_idx, auto_refresh, tag_filter, servers, ping_cache, last_refresh, status_banner, status_banner_time
 
         visible = [s for s in servers if tag_filter == "ALL" or s["tag"].lower() == tag_filter.lower()]
@@ -982,6 +1083,7 @@ def tui_main(stdscr):
                     status_banner = "Delete cancelled."
                 status_banner_time = time.monotonic()
 
+    # Main Render & Input Loop
     while True:
         now = time.monotonic()
         if auto_refresh > 0 and (now - last_refresh) >= auto_refresh:
@@ -1033,6 +1135,7 @@ def tui_main(stdscr):
         right_x = left_w + 1
         main_h = h - 6
 
+        # Pre-register interactive click/hover hitboxes
         auto_str = f"{auto_refresh}s" if auto_refresh > 0 else "OFF"
         auto_lbl = f"[Auto: {auto_str}]"
         tag_lbl  = f"[Tag: {tag_filter}]"
@@ -1045,6 +1148,7 @@ def tui_main(stdscr):
             row_y = 4 + i
             if row_y >= 3 + main_h - 4:
                 break
+            # Register diamond mount hitbox before full row hitbox so diamond takes priority
             click_zones.append((row_y, 5, 7, "mount_srv", i))
             click_zones.append((row_y, 1, left_w - 2, "row_srv", i))
 
@@ -1088,7 +1192,7 @@ def tui_main(stdscr):
         # 1. TOP HEADER BAR
         draw_box(stdscr, 0, 0, 3, w, "", c_border, c_cyan)
         safe_addstr(stdscr, 1, 2, "◆", c_blue | curses.A_BOLD)
-        safe_addstr(stdscr, 1, 4, "SSH CONNECTION HUB (v2.1.0)", c_cyan | curses.A_BOLD)
+        safe_addstr(stdscr, 1, 4, "SSH CONNECTION HUB (v2.2.0)", c_cyan | curses.A_BOLD)
 
         safe_addstr(stdscr, 1, ax, auto_lbl, c_hov if (hov_act == "i" and hov_y == 1) else (c_yellow | curses.A_BOLD))
         safe_addstr(stdscr, 1, tx, tag_lbl, c_hov if (hov_act == "f" and hov_y == 1) else (c_yellow | curses.A_BOLD))
@@ -1327,6 +1431,7 @@ def tui_main(stdscr):
 
         stdscr.refresh()
 
+        # Handle Keyboard & Mouse Events
         ch = stdscr.getch()
         if ch == -1:
             continue
@@ -1375,7 +1480,9 @@ def tui_main(stdscr):
             if key_char in ("c", "b", "s", "t", "w", "k", "g", "e", "d", "a", "n", "p", "r", "i", "f"):
                 trigger_action(key_char)
 
+
 def main():
+    """Entrypoint: ensure mouse reporting is reset before and after curses wrapper."""
     reset_terminal_mouse()
     try:
         curses.wrapper(tui_main)
@@ -1383,6 +1490,7 @@ def main():
         pass
     finally:
         reset_terminal_mouse()
+
 
 if __name__ == "__main__":
     main()

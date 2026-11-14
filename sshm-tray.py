@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+"""
+================================================================================
+sshm-tray.py — SSH Connection Hub (PyQt6 Desktop GUI & System Tray Monitor)
+================================================================================
+Architecture Overview:
+  - Provides a dual-mode PyQt6 desktop application:
+      1. System Tray Monitor (`sshm-tray`): Runs silently in the background,
+         listens for UDP telemetry broadcasts, polls pinned servers, and
+         provides 1-click SSH / SFTP / Wake-on-LAN actions from the tray menu.
+      2. Desktop Control Center (`sshm-gui` / `--gui`): Dual-pane GUI window
+         with 8 built-in color themes, multi-port LAN SSH scanner, custom
+         command manager, and universal cross-desktop SFTP folder mounter.
+  - Single-Instance IPC: Uses a local UDP control socket so launching `sshm-gui`
+    while `sshm-tray` is already running instantaneously brings the existing
+    GUI window to the foreground instead of spawning duplicate processes.
+================================================================================
+"""
 import os
 import sys
 import time
@@ -389,6 +406,9 @@ class LanScanWorkerThread(QThread):
         self.scan_finished.emit(found, f"{prefix}.0/24")
 
 
+# ==============================================================================
+# 2. MODAL DIALOGS (LAN Subnet Scanner, Server Profile Manager, Custom Commands)
+# ==============================================================================
 class LanScanDialog(QDialog):
     def __init__(self, existing_servers, parent=None):
         super().__init__(parent)
@@ -517,6 +537,7 @@ class LanScanDialog(QDialog):
         self.accept()
 
 
+# --- Server Profile Editor & Manager Dialog ---
 class ServerManagerDialog(QDialog):
     def __init__(self, initial_idx=-1, start_scanner=False, parent=None):
         super().__init__(parent)
@@ -974,6 +995,7 @@ class CustomCommandDialog(QDialog):
         self.on_server_changed()
 
 
+# --- Local SSH Port Forwarding (-L) Dialog ---
 class PortTunnelDialog(QDialog):
     def __init__(self, srv, parent=None):
         super().__init__(parent)
@@ -1010,6 +1032,9 @@ class PortTunnelDialog(QDialog):
         layout.addLayout(btns)
 
 
+# ==============================================================================
+# 3. MAIN PYQT6 DESKTOP CONTROL CENTER WINDOW (Dual-Pane GUI)
+# ==============================================================================
 class SSHHubMainWindow(QMainWindow):
     def __init__(self, controller):
         super().__init__()
@@ -2105,6 +2130,7 @@ class SSHHubTray(QSystemTrayIcon):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self.show_gui_window()
 
+    # --- Cross-Desktop Default Terminal Emulator Detection ---
     def _resolve_default_terminal(self):
         import shutil
         import configparser
@@ -2368,6 +2394,9 @@ def notify_existing_instance(start_gui=False):
         return True
 
 
+# ==============================================================================
+# 5. APPLICATION ENTRYPOINT & CLI ARGUMENT PARSER
+# ==============================================================================
 if __name__ == "__main__":
     invoked_name = Path(sys.argv[0]).name
     args = set(sys.argv[1:])
