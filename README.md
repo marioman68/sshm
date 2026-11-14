@@ -1,111 +1,114 @@
-# ◆ sshm — SSH Connection Hub & System Tray Monitor (v2.1.0)
+# sshm — Advanced SSH Connection Hub & System Tray Monitor (v2.1.0)
 
-A fast, modular, mouse-driven terminal UI (`sshm`) and native Linux system tray companion (`sshm-tray.py`) for managing SSH servers, SFTP network folder mounts, Wake-on-LAN, and local subnet discovery.
+A high-performance, modular terminal user interface (`sshm`) and native Linux system tray companion (`sshm-tray.py`) designed for robust remote server management, SFTP network folder orchestration, Wake-on-LAN routing, and automated local subnet discovery.
 
-Built for both **Linux Desktops** (KDE Plasma / GNOME / XFCE) and **Android / Termux** with an automatic responsive layout.
-
----
-
-## What's New in v2.1.0
-
-* **Server-First Target Inspector:** Click any server on the left (or press `1–9` / `↑`/`↓`) to make it the active target. The right-hand inspector updates live with its endpoint, ping latency, mount state, and 1-click actions. Double-click an active server (or press `Enter`) to jump straight into SSH!
-* **Parallel LAN SSH & Hardware MAC Scanner (`[n]`):** Sweeps your local `/24` network in ~1.5 seconds for open Port 22 nodes, resolves hostnames, and queries the ARP cache (`ip neigh`) for hardware MAC addresses. Click rows to multi-select new nodes or sync missing MAC addresses to existing profiles.
-* **Auto-MAC & Hostname Probing:** Adding (`[a]`) or editing (`[e]`) a server automatically probes the IP on your local network to fill in its hostname and Wake-on-LAN MAC address (or type `scan` in the MAC prompt anytime).
-* **Live Border & UI Theme Picker (`[p]`):** Choose from 8 built-in color palettes (*Royal Purple*, *Cyber Neon*, *Matrix Green*, *Solar Amber*, *Crimson Red*, *Oceanic Blue*, *Rose Pink*, *Stealth Slate*) with live on-screen preview. Saved automatically to `~/.ssh_hub_theme`.
-* **Auto-Mobile / Termux Portrait Mode:** Automatically detects narrow screens (`< 88` columns or Termux portrait mode) and stacks the **Remote Nodes** and **Target Inspector** panes vertically for thumb-friendly touch navigation.
-* **Native Symbolic Tray Icons (`sshm-tray.py`):** Dynamically detects `$XDG_CURRENT_DESKTOP` to use crisp, monochrome wireframe symbolic icons (`QIcon.fromTheme`) that match KDE Breeze and GTK system menus.
+Engineered to operate seamlessly across standard **Linux Desktop Environments** (KDE Plasma, GNOME, XFCE) as well as mobile terminals (**Android / Termux**), featuring automatic geometry scaling and adaptive layout switching.
 
 ---
 
-## Interface Preview (Desktop Mode)
+## Architecture & Modular Design
+
+The core application breaks away from monolithic script designs by utilizing a decoupled, modular Bash architecture. The build system compiles individual source modules into a single, highly optimized standalone executable binary.
 
 ```text
-╭────────────────────────────────────────────────────────────────────────────╮
-│ ◆ SSH CONNECTION HUB (v2.1.0)                                   [Tag: ALL]│
-╰────────────────────────────────────────────────────────────────────────────╯
-╭─ REMOTE NODES (2) ─────────────────╮ ╭─ TARGET: Homelab Node [Homelab] ────╮
-│ ▸ ● ◆ [ 1]  Homelab Node      1ms │ │  Endpoint : lucas@192.168.4.50:22   │
-│   ● ◇ [ 2]  Minecraft_server  0ms │ │  Status   : ● ONLINE (1ms) • ◆ Mnt │
-│                                    │ ├─────────────────────────────────────┤
-│                                    │ │  [c]   Connect via SSH (Auto-tmux)  │
-│                                    │ │  [b]   Open Network Folder in GUI   │
-│                                    │ │  [s]   Interactive SFTP Shell       │
-│                                    │ │  [t]   Port Tunneling (Local Fwd)   │
-│                                    │ │  [w]   Wake-on-LAN (d4:be:d9:...)   │
-│                                    │ │  [k]   Push SSH Public Key          │
-│                                    │ │  [e]   Edit Target Server Profile   │
-│                                    │ │  [d]   Delete Target Server Profile │
-├────────────────────────────────────┤ ├─────────────────────────────────────┤
-│● Online ○ Offline ◆/◇Click to Mnt│ │  [a]   Add New Server Profile       │
-│Click server to target • 2x-Click   │ │  [n]   Scan Local Network (SSH)     │
-│                                    │ │  [p]   Border & UI Theme (Purple)   │
-│                                    │ │  [r]   Refresh All Server Statuses  │
-│                                    │ │  [q]   Exit SSH Connection Hub      │
-╰────────────────────────────────────╯ ╰─────────────────────────────────────╯
-╭────────────────────────────────────────────────────────────────────────────╮
-│ Target: Homelab Node  |  [Enter/c] SSH  [n] Scan LAN  [a] Add  [q] Quit:   │
-╰────────────────────────────────────────────────────────────────────────────╯
-
-Modular Project Structure
-Plaintext
-
 sshm/
 ├── src/
-│   ├── 01_header.sh    # State arrays, ANSI colors, 8 UI themes & mouse traps
-│   ├── 02_ui.sh        # Desktop & Termux responsive geometry + pane renderers
-│   ├── 03_backend.sh   # Parallel ping, ARP MAC prober, Dolphin/GTK mount sync
-│   ├── 04_actions.sh   # SSH/SFTP, port tunnels, LAN scanner, theme picker
-│   └── 05_main.sh      # Main event loop, SGR 1006 mouse tracking & dispatcher
-├── sshm                # Compiled standalone executable (built via build.sh)
-├── sshm-tray.py        # PyQt6 system tray monitor with native DE icons
-├── dev.sh              # Live test runner (assembles src/* into a temp run)
-├── build.sh            # Compiles src/* modules into the standalone ./sshm script
-└── install.sh          # Installs sshm to ~/.local/bin and sets up desktop entries
+│   ├── 01_header.sh    # Global state arrays, ANSI color definitions, 8 UI themes & signal traps
+│   ├── 02_ui.sh        # Desktop and Termux responsive geometry calculation & pane renderers
+│   ├── 03_backend.sh   # Parallel ping diagnostics, ARP MAC prober, Dolphin/GTK mount sync
+│   ├── 04_actions.sh   # SSH/SFTP orchestration, port forwarding tunnels, LAN scanner, theme engine
+│   └── 05_main.sh      # Main event loop, SGR 1006 mouse coordinate tracking & input dispatcher
+├── sshm                # Compiled standalone executable (compiled via build.sh)
+├── sshm-tray.py        # PyQt6 system tray monitor with native desktop environment integration
+├── dev.sh              # Live test runner assembling src/* modules into a temporary session
+├── build.sh            # Production compiler bundling src/* modules into the standalone ./sshm binary
+└── install.sh          # Deployment script installing binaries to ~/.local/bin and generating desktop entries
+```
 
-Installation & Usage
-1. Build & Install
-Bash
+---
 
+## Core Features & Technical Breakdown
+
+### 1. Hybrid Telemetry & Live Monitoring
+* **Instant Status Updates:** Features an integrated background UDP listener operating on port `55889`. Target nodes running the lightweight Python heartbeat daemon push real-time status packets directly into shared memory (`/dev/shm/sshm_telemetry.json`), allowing sub-millisecond status reads with zero SSD wear.
+* **Port Isolation:** Supports complex multi-instance environments where multiple server profiles share a single IP address across distinct SSH ports (such as bare-metal host operating systems versus isolated Docker containers), evaluating each unique target endpoint independently.
+* **Dual-Tier Probing:** If a target does not have the telemetry agent installed, the engine gracefully falls back to a parallelized asynchronous TCP socket handshake and ICMP ping check.
+
+### 2. Subnet Discovery & Auto-MAC Probing
+* **Parallel LAN Scanner (`[n]`):** Executes an asynchronous network sweep across the local `/24` subnet in approximately 1.5 seconds, probing standard TCP port `22` to discover unlisted SSH nodes.
+* **ARP Table Resolution:** Automatically queries the local kernel routing table and ARP cache (`ip neigh`) to resolve hardware MAC addresses instantly, eliminating manual administrative data entry.
+
+### 3. Desktop Integration & Mounting
+* **Cross-Environment Mounting:** Integrates directly with File Manager standards. Toggling a server mount generates a desktop link in `~/Network_Servers/` while simultaneously syncing native sidebar bookmarks across KDE Dolphin (`user-places.xbel`) and GTK-based file managers (`~/.config/gtk-3.0/bookmarks`).
+* **Native Symbolic Tray Icons (`sshm-tray.py`):** Queries `$XDG_CURRENT_DESKTOP` to render crisp, monochrome wireframe symbolic icons via `QIcon.fromTheme`, ensuring visual consistency across modern panel themes.
+
+---
+
+## Complete Controls & Keyboard/Mouse Reference
+
+| Input Method | Action / Execution |
+| :--- | :--- |
+| **Left-Click Server Row** | Designate selected server as the active target inspector node |
+| **Double-Click / Enter / c** | Establish direct SSH connection to active target (with optional automatic `tmux` session attachment) |
+| **Click Mount Diamond** | Toggle remote SFTP network folder mount status inside the desktop file manager sidebar |
+| **Numeric Keys `1`–`9`** | Quickly switch active target index by position |
+| **Arrow Keys `↑` / `↓`** | Navigate through the remote nodes roster sequentially |
+| **`b`** | Open target home directory immediately in the default GUI file manager via `sftp://` |
+| **`s`** | Initialize an interactive SFTP terminal shell session |
+| **`t`** | Configure and launch a background local port forwarding tunnel (`localhost:LPORT -> remote:RPORT`) |
+| **`w`** | Transmit a Wake-on-LAN magic UDP packet to the target's configured MAC address |
+| **`k`** | Provision and push your local SSH public key to the target node via `ssh-copy-id` |
+| **`e` / `d`** | Edit parameters or permanently delete the active target server profile |
+| **`a`** | Launch wizard to add a new server profile with automated IP host and MAC probing |
+| **`n`** | Initialize the parallel subnet network scanner to discover unconfigured hosts |
+| **`p`** | Open the live border and UI color theme switcher interface |
+| **`f`** | Cycle through active server tag filters (e.g., `ALL`, production groups, custom categories) |
+| **`r` / `q`** | Force an immediate global status refresh / Safely terminate application session |
+
+---
+
+## Installation & Deployment
+
+### Step 1: Clone and Build
+Ensure execution permissions are set, then execute the installation script to compile the modular source files and deploy binaries to your local path:
+
+```bash
+cd ~/Projects/sshm
 chmod +x dev.sh build.sh install.sh sshm-tray.py
 ./install.sh
+```
+*(Verify that `~/.local/bin` is included in your user environment `$PATH`).*
 
-(Make sure ~/.local/bin is in your $PATH.)
-2. Development & Live Testing
+### Step 2: Development & Live Testing
+To test modular source modifications made inside the `src/` directory without performing a full reinstall, use the live test runner wrapper:
 
-When editing individual modules inside src/, test your changes immediately without reinstalling:
-Bash
-
+```bash
 ./dev.sh
+```
 
-3. Launch the Hub or Tray Monitor
+### Step 3: Execution
+* **Terminal Interface:** Run the core TUI application from any terminal emulator (Konsole, Ptyxis, Alacritty, Termux):
+  ```bash
+  sshm
+  ```
+* **System Tray Monitor:** Launch the background tray companion as a daemon process:
+  ```bash
+  sshm-tray &
+  ```
 
-    Terminal UI: Run sshm in any terminal (Konsole, Ptyxis, Termux, etc.).
+---
 
-    System Tray Companion: Run ./sshm-tray.py & (requires python3-pyqt6).
+## Configuration File Specifications
 
-Controls & Mouse Shortcuts
-Input	Action
-Left-Click Server Row	Select server as active Target (▸)
-2x-Click Server / Enter / c	Connect to active Target via SSH (with optional tmux attach)
-Click ◆ / ◇ Diamond	Toggle GUI File Manager network bookmark (KDE Dolphin / GTK)
-1 – 9 or ↑ / ↓ Arrows	Switch active Target server via keyboard
-b	Open Target's home folder in GUI File Manager (sftp://)
-s	Open interactive SFTP shell to Target
-t	Create a background local port tunnel (localhost:LPORT -> remote:RPORT)
-w	Send Wake-on-LAN magic packet to Target's saved MAC address
-k	Push SSH public key to Target (ssh-copy-id)
-e / d	Edit or Delete active Target profile
-a	Add a new server profile (auto-probes Hostname & MAC from IP)
-n	Launch Parallel /24 Local Network SSH & MAC Scanner
-p	Open Live Border & UI Theme Picker (1–8)
-f	Cycle server tag filters ([Tag: ALL], [Tag: Homelab], etc.)
-r / q	Refresh all server statuses / Exit Hub
+* **Server Profiles (`~/.ssh_servers`):** Structured as a flat, pipe-delimited configuration database:
+  ```text
+  Name|Username|HostAddress|Port|Tag|MACAddress|KeyPath
+  ```
+* **Theme Configuration (`~/.ssh_hub_theme`):** Stores the active integer identifier corresponding to your selected border and accent palette (`0` through `7`).
+* **Mount Directories (`~/Network_Servers/`):** Contains localized desktop shortcut definitions facilitating system file manager integration.
 
-Configuration Files
+---
 
-    ~/.ssh_servers: Pipe-delimited server profiles (Name|User|Host|Port|Tag|MAC|KeyPath).
+## Acknowledgments & Development Attribution
 
-    ~/.ssh_hub_theme: Stores your selected border theme index (0–7).
-
-    ~/Network_Servers/: Stores .desktop network links alongside native KDE Dolphin (user-places.xbel) and GTK (~/.config/gtk-3.0/bookmarks) sidebar entries.
-    EOF
+This software project was developed with the assistance of artificial intelligence systems, which contributed to architectural planning, modular script refactoring, asynchronous queue handling, and telemetry socket synchronization algorithms.
