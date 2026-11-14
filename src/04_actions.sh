@@ -1049,3 +1049,236 @@ refresh_settings_flow() {
 
     disable_mouse
 }
+
+
+deploy_agent_flow() {
+    local idx="$1"
+    local name="${srv_names[$idx]}"
+    local user="${srv_users[$idx]}"
+    local host="${srv_hosts[$idx]}"
+    local port="${srv_ports[$idx]}"
+    local key="${srv_keys[$idx]}"
+
+    # Detect local IP that routes to this server
+    local my_ip=""
+    local target_ip="$host"
+    if [[ ! "$host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        target_ip=$(getent ahostsv4 "$host" 2>/dev/null | awk '{print $1; exit}')
+    fi
+    if [ -n "$target_ip" ]; then
+        my_ip=$(ip route get "$target_ip" 2>/dev/null | grep -oP 'src \K[0-9.]+')
+    fi
+    [ -z "$my_ip" ] && my_ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[0-9.]+')
+
+    # Step 1: Interactive Right-Pane Menu with Full Mouse Hover & Click!
+    for ((r=ROW_R_INFO_1; r<=ROW_TWIN_END; r++)); do
+        render_right_agent_pane "$r" 0 "$my_ip"
+    done
+
+    prompt_in_dialog "Telemetry Agent: Click or press [Enter/1] Deploy, [2/x] Remove, or [q] Cancel: "
+    enable_mouse
+
+    local ag_choice=""
+    local hover_row=0
+    local row_dep="$ROW_R_ACT_START"
+    local row_cus="$(( ROW_R_ACT_START + 1 ))"
+    local row_rem="$(( ROW_R_ACT_START + 2 ))"
+    local row_can="$(( ROW_R_ACT_START + 3 ))"
+
+    while true; do
+        if IFS= read -rsn1 -t 1 char; then
+            if [[ "$char" == $'\e' ]]; then
+                read -rsn2 -t 0.05 seq
+                if [[ "$seq" == "[<" ]]; then
+                    local mouse_event=""
+                    local mchar=""
+                    while IFS= read -rsn1 mchar; do
+                        mouse_event+="$mchar"
+                        [[ "$mchar" == "M" || "$mchar" == "m" ]] && break
+                    done
+                    if [[ "$mouse_event" =~ ^([0-9]+)\;([0-9]+)\;([0-9]+)([Mm])$ ]]; then
+                        local btn="${BASH_REMATCH[1]}"
+                        local cx="${BASH_REMATCH[2]}"
+                        local cy="${BASH_REMATCH[3]}"
+                        local action="${BASH_REMATCH[4]}"
+
+                        if [ "$cx" -ge "$RIGHT_START" ] && [ "$cx" -le "$RIGHT_END" ] && \
+                           { [ "$cy" -eq "$row_dep" ] || [ "$cy" -eq "$row_cus" ] || [ "$cy" -eq "$row_rem" ] || [ "$cy" -eq "$row_can" ]; }; then
+                            if [ "$hover_row" -ne "$cy" ]; then
+                                [ "$hover_row" -ne 0 ] && render_right_agent_pane "$hover_row" 0 "$my_ip"
+                                render_right_agent_pane "$cy" 1 "$my_ip"
+                                hover_row="$cy"
+                            fi
+                            if [ "$btn" -eq 0 ] && [ "$action" == "M" ]; then
+                                if [ "$cy" -eq "$row_dep" ]; then
+                                    ag_choice="deploy"
+                                elif [ "$cy" -eq "$row_cus" ]; then
+                                    ag_choice="custom"
+                                elif [ "$cy" -eq "$row_rem" ]; then
+                                    ag_choice="remove"
+                                else
+                                    ag_choice="cancel"
+                                fi
+                                break
+                            fi
+                        else
+                            if [ "$hover_row" -ne 0 ]; then
+                                render_right_agent_pane "$hover_row" 0 "$my_ip"
+                                hover_row=0
+                            fi
+                        fi
+                    fi
+                else
+                    ag_choice="cancel"
+                    break
+                fi
+            elif [[ "$char" == "" || "$char" == "1" ]]; then
+                ag_choice="deploy"
+                break
+            elif [[ "$char" =~ ^[Cc]$ ]]; then
+                ag_choice="custom"
+                break
+            elif [[ "$char" == "2" || "$char" =~ ^[Xx]$ ]]; then
+                ag_choice="remove"
+                break
+            elif [[ "$char" =~ ^[Qq]$ ]]; then
+                ag_choice="cancel"
+                break
+            fi
+        fi
+    done
+
+    disable_mouse
+
+    if [ "$ag_choice" == "cancel" ] || [ -z "$ag_choice" ]; then
+        return
+    fi
+
+    local ssh_opts=("-p" "$port")
+    if [ -n "$key" ]; then
+        local exp_key
+        exp_key=$(expand_path "$key")
+        [ -f "$exp_key" ] && ssh_opts+=("-i" "$exp_key")
+    fi
+
+    if [ "$ag_choice" == "remove" ]; then
+        clear
+        echo -e "${C_HEADER}${C_BOLD}◆ REMOVING TELEMETRY AGENT: ${name} (${user}@${host})${C_RESET}\n"
+        echo -e "${C_YELLOW}[ INFO ] Stopping and removing sshm-agent.service on ${name}...${C_RESET}"
+        ssh "${ssh_opts[@]}" "${user}@${host}" "systemctl --user disable --now sshm-agent.service 2>/dev/null; rm -f ~/.local/bin/sshm-agent.py ~/.config/systemd/user/sshm-agent.service"
+        rm -f "$TELEM_FILE" 2>/dev/null || true
+        echo -e "${C_GREEN}[  OK  ] Agent removed from ${name}.${C_RESET}"
+        echo -ne "\n${C_MUTED}Press Enter to return to hub...${C_RESET}"
+        read -r
+        return
+    fi
+
+    local hub_ip="$my_ip"
+    clear
+    echo -e "${C_HEADER}${C_BOLD}◆ DEPLOYING LIVE TELEMETRY AGENT: ${name} (${user}@${host})${C_RESET}\n"
+
+    if [ "$ag_choice" == "custom" ]; then
+        read -erp "  Hub Receiver IP (This PC) [Default: ${my_ip}]: " input_ip
+        [ -n "$input_ip" ] && hub_ip="$input_ip"
+    fi
+
+    echo -e "${C_CYAN}[ INFO ] Installing systemd user agent on ${user}@${host} -> ${hub_ip}:${TELEM_PORT}...${C_RESET}"
+
+    ssh "${ssh_opts[@]}" "${user}@${host}" "bash -s" -- "$hub_ip" "$TELEM_PORT" "$host" "$port" << 'REMOTESCRIPT'
+HubIP="$1"
+HubPort="$2"
+HostLabel="$3"
+SshPort="${4:-22}"
+
+mkdir -p ~/.local/bin ~/.config/systemd/user
+
+cat << 'AGENTEOF' > ~/.local/bin/sshm-agent.py
+#!/usr/bin/env python3
+import os, sys, time, json, socket, signal
+
+HUB_IP = sys.argv[1]
+HUB_PORT = int(sys.argv[2])
+HOST_LBL = sys.argv[3]
+SSH_PORT = sys.argv[4] if len(sys.argv) > 4 else "22"
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+def send_pkt(ssh_alive=1, cpu=0.0, ram="--", up="--"):
+    pkt = json.dumps({"host": HOST_LBL, "port": SSH_PORT, "ssh": ssh_alive, "cpu": f"{cpu:.0f}", "ram": ram, "up": up}).encode()
+    try:
+        sock.sendto(pkt, (HUB_IP, HUB_PORT))
+    except Exception:
+        pass
+
+def on_stop(sig, frame):
+    send_pkt(ssh_alive=0)
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, on_stop)
+signal.signal(signal.SIGINT, on_stop)
+
+prev_idle = prev_total = 0
+while True:
+    try:
+        with open("/proc/stat") as f:
+            parts = [float(x) for x in f.readline().split()[1:8]]
+        idle = parts[3] + parts[4]
+        total = sum(parts)
+        diff_total = total - prev_total
+        cpu = 100.0 * (1.0 - (idle - prev_idle) / diff_total) if diff_total > 0 else 0.0
+        prev_idle, prev_total = idle, total
+
+        mem = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                k, v = line.split(":", 1)
+                mem[k.strip()] = int(v.split()[0])
+        tot_g = mem.get("MemTotal", 1) / 1048576.0
+        used_g = (mem.get("MemTotal", 1) - mem.get("MemAvailable", 0)) / 1048576.0
+        ram_str = f"{used_g:.1f}/{tot_g:.0f}G"
+
+        with open("/proc/uptime") as f:
+            up_sec = int(float(f.readline().split()[0]))
+        if up_sec >= 86400:
+            up_str = f"{up_sec // 86400}d {(up_sec % 86400) // 3600}h"
+        elif up_sec >= 3600:
+            up_str = f"{up_sec // 3600}h {(up_sec % 3600) // 60}m"
+        else:
+            up_str = f"{up_sec // 60}m"
+
+        send_pkt(1, max(0.0, min(100.0, cpu)), ram_str, up_str)
+    except Exception:
+        pass
+    time.sleep(2.0)
+AGENTEOF
+
+chmod +x ~/.local/bin/sshm-agent.py
+
+cat << UNITEOF > ~/.config/systemd/user/sshm-agent.service
+[Unit]
+Description=SSH Hub Live Telemetry & Heartbeat Agent
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/env python3 %h/.local/bin/sshm-agent.py ${HubIP} ${HubPort} ${HostLabel} ${SshPort}
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+UNITEOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now sshm-agent.service
+loginctl enable-linger "$USER" 2>/dev/null || true
+REMOTESCRIPT
+
+    if [ $? -eq 0 ]; then
+        echo -e "\n${C_GREEN}${C_BOLD}[  OK  ] Telemetry Agent is now active on '${name}'!${C_RESET}"
+        echo -e "${C_MUTED}         (Tip: If stats don't appear in 3s, ensure UDP port ${TELEM_PORT} is open on this PC)${C_RESET}"
+        sleep 1.2
+    else
+        echo -e "\n${C_RED}${C_BOLD}[ FAIL ] Could not deploy agent via SSH.${C_RESET}"
+        echo -ne "\n${C_MUTED}Press Enter to return to hub...${C_RESET}"
+        read -r
+    fi
+}

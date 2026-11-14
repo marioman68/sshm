@@ -1,3 +1,43 @@
+
+# Checks /dev/shm/sshm_telemetry.json for fresh (< 6s) heartbeat before network probing!
+check_telemetry_cache() {
+    local host="$1"
+    local port="${2:-22}"
+    [ ! -f "$TELEM_FILE" ] && return 1
+
+    python3 - "$TELEM_FILE" "$host" "$port" << 'PYEOF' 2>/dev/null
+import sys, json, time, socket
+try:
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    host = sys.argv[2]
+    port = str(sys.argv[3])
+    # Look up exact host:port first (or legacy host only if port == 22)
+    entry = data.get(f"{host}:{port}")
+    if not entry and port == "22":
+        entry = data.get(host)
+    if not entry:
+        sys.exit(1)
+    age = time.time() - float(entry.get("ts", 0))
+    if age <= 6.0 and int(entry.get("ssh", 1)) == 1:
+        # Verify the actual SSH port is accepting connections so stopped containers/sshd show OFFLINE
+        try:
+            with socket.create_connection((host, int(port)), timeout=0.6):
+                pass
+        except Exception:
+            print("OFFLINE|--|--|--")
+            sys.exit(0)
+        print(f"ONLINE|{entry.get('cpu','--')}|{entry.get('ram','--')}|{entry.get('up','--')}")
+        sys.exit(0)
+    elif age <= 6.0 and int(entry.get("ssh", 1)) == 0:
+        print("OFFLINE|--|--|--")
+        sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+PYEOF
+}
+
 # ==============================================================================
 # MODULE 03: Backend Logic (Config, Ping/Latency, Mounts, MAC & Network Probes)
 # ==============================================================================
@@ -205,6 +245,10 @@ load_and_ping_servers() {
     srv_online=()
     srv_latencies=()
     srv_mounted=()
+    srv_cpu=()
+    srv_ram=()
+    srv_uptime=()
+    srv_has_agent=()
     unique_tags=("ALL")
     server_count=0
 
@@ -249,7 +293,20 @@ load_and_ping_servers() {
             fi
 
             (
-                measure_latency "$host" "$port" > "$tmp_dir/$idx"
+                if telem_out=$(check_telemetry_cache "$host" "$port"); then
+                    IFS='|' read -r t_st t_cpu t_ram t_up <<< "$telem_out"
+                    if [ "$t_st" == "ONLINE" ]; then
+                        # Fast 1-packet ping for ms display, no timeout wait needed!
+                        ms=$(ping -c 1 -W 1 "$host" 2>/dev/null | grep -oP 'time=\K[0-9.]+' | head -n1)
+                        lat_str="${ms:+$(printf '%.0fms' "$ms")}"
+                        printf "%s|ONLINE|1|%s|%s|%s" "${lat_str:-1ms}" "$t_cpu" "$t_ram" "$t_up" > "$tmp_dir/$idx"
+                    else
+                        printf -- "--|OFFLINE|1|--|--|--" > "$tmp_dir/$idx"
+                    fi
+                else
+                    lat_st=$(measure_latency "$host" "$port")
+                    printf "%s|0|--|--|--" "$lat_st" > "$tmp_dir/$idx"
+                fi
             ) &
 
             ((server_count++))
@@ -261,12 +318,20 @@ load_and_ping_servers() {
 
     for ((i=0; i<server_count; i++)); do
         if [ -f "$tmp_dir/$i" ]; then
-            IFS='|' read -r lat st < "$tmp_dir/$i"
+            IFS='|' read -r lat st has_ag t_cpu t_ram t_up < "$tmp_dir/$i"
             srv_latencies[$i]="${lat:---}"
             srv_online[$i]="${st:-OFFLINE}"
+            srv_has_agent[$i]="${has_ag:-0}"
+            srv_cpu[$i]="${t_cpu:---}"
+            srv_ram[$i]="${t_ram:---}"
+            srv_uptime[$i]="${t_up:---}"
         else
             srv_latencies[$i]="--"
             srv_online[$i]="OFFLINE"
+            srv_has_agent[$i]=0
+            srv_cpu[$i]="--"
+            srv_ram[$i]="--"
+            srv_uptime[$i]="--"
         fi
     done
 

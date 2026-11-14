@@ -279,7 +279,7 @@ DESKTOP
 
         if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
             echo -e "${C_CYAN}[ INFO ] Launching / restarting sshm-tray in the background...${C_RESET}"
-            pkill -f "sshm-tray" 2>/dev/null || true
+            pkill -f "[s]shm-tray" 2>/dev/null || true
             sleep 0.3
             nohup "$BIN_DIR/sshm-tray" >/dev/null 2>&1 &
             echo -e "${C_GREEN}[  OK  ] 'sshm-tray' is running in your system tray!${C_RESET}"

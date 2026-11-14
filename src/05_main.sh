@@ -128,6 +128,7 @@ dispatch_action() {
         t|T) port_tunnel_flow "$selected_idx"; full_redraw ;;
         w|W) wake_on_lan_flow "$selected_idx"; refresh_right_inspector ;;
         k|K) push_ssh_key_flow "$selected_idx"; full_redraw ;;
+        g|G) deploy_agent_flow "$selected_idx"; full_redraw ;;
         e|E) edit_server_flow "$selected_idx"; full_redraw ;;
         d|D) delete_server_flow "$selected_idx"; full_redraw ;;
     esac
@@ -234,8 +235,9 @@ while true; do
                                     3) dispatch_action "t" ;;
                                     4) dispatch_action "w" ;;
                                     5) dispatch_action "k" ;;
-                                    6) dispatch_action "e" ;;
-                                    7) dispatch_action "d" ;;
+                                    6) dispatch_action "g" ;;
+                                    7) dispatch_action "e" ;;
+                                    8) dispatch_action "d" ;;
                                 esac
                             elif [ "$cy" -ge "$ROW_R_GLOB_START" ] && [ "$cy" -le "$ROW_R_GLOB_END" ]; then
                                 glob_idx=$(( cy - ROW_R_GLOB_START ))
