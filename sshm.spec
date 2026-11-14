@@ -3,8 +3,11 @@ Version:        2.2.0
 Release:        1%{?dist}
 Summary:        SSH Connection Hub, SFTP Mounter, and Live Telemetry Control Center
 License:        MIT
-URL:            https://github.com/YOUR_GITHUB_USERNAME/sshm
+URL:            https://github.com/marioman68/sshm
 BuildArch:      noarch
+
+Source0:        https://raw.githubusercontent.com/marioman68/sshm/main/sshm.py
+Source1:        https://raw.githubusercontent.com/marioman68/sshm/main/sshm-tray.py
 
 Requires:       python3
 Requires:       python3-pyqt6
@@ -18,8 +21,7 @@ Includes a PyQt6 Desktop GUI Control Center, a persistent System Tray Monitor,
 and a 256-color Python Curses Split-Pane Terminal TUI.
 
 %prep
-# Copy source files from git repository root into build directory
-cp -a %{_sourcedir}/* . 2>/dev/null || true
+# Nothing to unpack since we install directly from Source0 and Source1
 
 %build
 # Pure Python/Bash scripts — no compilation required
@@ -31,9 +33,9 @@ install -d %{buildroot}%{_datadir}/applications
 install -d %{buildroot}%{_datadir}/icons/hicolor/scalable/apps
 install -d %{buildroot}%{_sysconfdir}/xdg/autostart
 
-# 1. Install core Python scripts
-install -m 0755 sshm.py %{buildroot}%{_datadir}/sshm/sshm.py
-install -m 0755 sshm-tray.py %{buildroot}%{_datadir}/sshm/sshm-tray.py
+# 1. Install core Python scripts directly from Source0 and Source1
+install -m 0755 %{SOURCE0} %{buildroot}%{_datadir}/sshm/sshm.py
+install -m 0755 %{SOURCE1} %{buildroot}%{_datadir}/sshm/sshm-tray.py
 
 # 2. Create SVG Icon
 cat << 'IEOF' > %{buildroot}%{_datadir}/sshm/sshm-hub.svg
