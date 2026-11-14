@@ -167,10 +167,10 @@ toggle_mount() {
     local xbel_file="$HOME/.local/share/user-places.xbel"
     local gtk_file="$HOME/.config/gtk-3.0/bookmarks"
 
-    mkdir -p "$MOUNT_DIR"
+    mkdir -p "$MOUNT_DIR" "$HOME/.local/share/remoteview"
 
     if [ "$cur_mnt" -eq 1 ]; then
-        rm -f "$desktop_file"
+        rm -f "$desktop_file" "$HOME/.local/share/remoteview/$(basename "$desktop_file")"
         if [ -f "$gtk_file" ]; then
             sed -i "\|sftp://${user}@${host}|d" "$gtk_file"
         fi
@@ -200,6 +200,7 @@ Type=Link
 URL[$e]=${url}
 DESKTOP
         chmod +x "$desktop_file"
+        cp -f "$desktop_file" "$HOME/.local/share/remoteview/" 2>/dev/null || true
 
         if [[ "${XDG_CURRENT_DESKTOP^^}" == *"KDE"* ]] && [ -f "$xbel_file" ] && command -v python3 >/dev/null 2>&1; then
             python3 -c "

@@ -1,114 +1,92 @@
-# sshm — Advanced SSH Connection Hub & System Tray Monitor (v2.1.0)
+# ◆ sshm — SSH Connection Hub & Telemetry Control Center (v2.2.0)
 
-A high-performance, modular terminal user interface (`sshm`) and native Linux system tray companion (`sshm-tray.py`) designed for robust remote server management, SFTP network folder orchestration, Wake-on-LAN routing, and automated local subnet discovery.
+A fast, unified **Hybrid Linux Desktop Utility** for managing SSH servers, mounting remote SFTP folders, scanning local networks, and monitoring live server CPU/RAM telemetry.
 
-Engineered to operate seamlessly across standard **Linux Desktop Environments** (KDE Plasma, GNOME, XFCE) as well as mobile terminals (**Android / Termux**), featuring automatic geometry scaling and adaptive layout switching.
+**`sshm`** gives you three ways to work from a single shared configuration:
 
----
-
-## Architecture & Modular Design
-
-The core application breaks away from monolithic script designs by utilizing a decoupled, modular Bash architecture. The build system compiles individual source modules into a single, highly optimized standalone executable binary.
-
-```text
-sshm/
-├── src/
-│   ├── 01_header.sh    # Global state arrays, ANSI color definitions, 8 UI themes & signal traps
-│   ├── 02_ui.sh        # Desktop and Termux responsive geometry calculation & pane renderers
-│   ├── 03_backend.sh   # Parallel ping diagnostics, ARP MAC prober, Dolphin/GTK mount sync
-│   ├── 04_actions.sh   # SSH/SFTP orchestration, port forwarding tunnels, LAN scanner, theme engine
-│   └── 05_main.sh      # Main event loop, SGR 1006 mouse coordinate tracking & input dispatcher
-├── sshm                # Compiled standalone executable (compiled via build.sh)
-├── sshm-tray.py        # PyQt6 system tray monitor with native desktop environment integration
-├── dev.sh              # Live test runner assembling src/* modules into a temporary session
-├── build.sh            # Production compiler bundling src/* modules into the standalone ./sshm binary
-└── install.sh          # Deployment script installing binaries to ~/.local/bin and generating desktop entries
-```
+1. **Desktop GUI Control Center (`sshm-gui`):** A dual-pane PyQt6 control center with 8 built-in color themes, 1-click actions, and live node inspection.
+2. **Lightweight System Tray Monitor (`sshm-tray`):** Sits quietly in your panel, tracks only the servers you pin, and opens the GUI instantly when clicked.
+3. **Interactive Terminal TUI (`sshm`):** A zero-dependency Bash terminal interface for when you are already working in a shell or connecting remotely.
 
 ---
 
-## Core Features & Technical Breakdown
+## Screenshots
 
-### 1. Hybrid Telemetry & Live Monitoring
-* **Instant Status Updates:** Features an integrated background UDP listener operating on port `55889`. Target nodes running the lightweight Python heartbeat daemon push real-time status packets directly into shared memory (`/dev/shm/sshm_telemetry.json`), allowing sub-millisecond status reads with zero SSD wear.
-* **Port Isolation:** Supports complex multi-instance environments where multiple server profiles share a single IP address across distinct SSH ports (such as bare-metal host operating systems versus isolated Docker containers), evaluating each unique target endpoint independently.
-* **Dual-Tier Probing:** If a target does not have the telemetry agent installed, the engine gracefully falls back to a parallelized asynchronous TCP socket handshake and ICMP ping check.
+### Desktop GUI Control Center & System Tray (`sshm-gui` / `sshm-tray`)
 
-### 2. Subnet Discovery & Auto-MAC Probing
-* **Parallel LAN Scanner (`[n]`):** Executes an asynchronous network sweep across the local `/24` subnet in approximately 1.5 seconds, probing standard TCP port `22` to discover unlisted SSH nodes.
-* **ARP Table Resolution:** Automatically queries the local kernel routing table and ARP cache (`ip neigh`) to resolve hardware MAC addresses instantly, eliminating manual administrative data entry.
+![SSH Connection Hub GUI Preview](screenshots/gui-preview.png)
+> *Tip: Place your GUI screenshot at `screenshots/gui-preview.png` (or update the path above).*
 
-### 3. Desktop Integration & Mounting
-* **Cross-Environment Mounting:** Integrates directly with File Manager standards. Toggling a server mount generates a desktop link in `~/Network_Servers/` while simultaneously syncing native sidebar bookmarks across KDE Dolphin (`user-places.xbel`) and GTK-based file managers (`~/.config/gtk-3.0/bookmarks`).
-* **Native Symbolic Tray Icons (`sshm-tray.py`):** Queries `$XDG_CURRENT_DESKTOP` to render crisp, monochrome wireframe symbolic icons via `QIcon.fromTheme`, ensuring visual consistency across modern panel themes.
+### Terminal User Interface (`sshm`)
+
+![SSH Connection Hub TUI Preview](screenshots/tui-preview.png)
+> *Tip: Place your TUI screenshot at `screenshots/tui-preview.png` (or update the path above).*
 
 ---
 
-## Complete Controls & Keyboard/Mouse Reference
+## Key Features
 
-| Input Method | Action / Execution |
-| :--- | :--- |
-| **Left-Click Server Row** | Designate selected server as the active target inspector node |
-| **Double-Click / Enter / c** | Establish direct SSH connection to active target (with optional automatic `tmux` session attachment) |
-| **Click Mount Diamond** | Toggle remote SFTP network folder mount status inside the desktop file manager sidebar |
-| **Numeric Keys `1`–`9`** | Quickly switch active target index by position |
-| **Arrow Keys `↑` / `↓`** | Navigate through the remote nodes roster sequentially |
-| **`b`** | Open target home directory immediately in the default GUI file manager via `sftp://` |
-| **`s`** | Initialize an interactive SFTP terminal shell session |
-| **`t`** | Configure and launch a background local port forwarding tunnel (`localhost:LPORT -> remote:RPORT`) |
-| **`w`** | Transmit a Wake-on-LAN magic UDP packet to the target's configured MAC address |
-| **`k`** | Provision and push your local SSH public key to the target node via `ssh-copy-id` |
-| **`e` / `d`** | Edit parameters or permanently delete the active target server profile |
-| **`a`** | Launch wizard to add a new server profile with automated IP host and MAC probing |
-| **`n`** | Initialize the parallel subnet network scanner to discover unconfigured hosts |
-| **`p`** | Open the live border and UI color theme switcher interface |
-| **`f`** | Cycle through active server tag filters (e.g., `ALL`, production groups, custom categories) |
-| **`r` / `q`** | Force an immediate global status refresh / Safely terminate application session |
+* **Unified Hybrid Architecture:** The GUI Control Center, System Tray monitor, and Terminal TUI all read and write to the exact same configuration files (`~/.ssh_servers`, `~/.ssh_custom_commands.json`, and `/dev/shm/sshm_telemetry.json`). Changes made in one appear in the others immediately.
+* **Selective Tray Pinning:** Keep your full fleet of servers, test VMs, and containers inside the GUI/TUI while choosing *only* specific production or homelab nodes to be polled and displayed in your system tray (`[Tray+GUI]` vs `[GUI Only]`).
+* **Live UDP Telemetry Agent:** Optional 1-click deployment of a tiny, zero-dependency Python systemd user service (`sshm-agent.service` with `loginctl enable-linger`) on remote Linux hosts. Broadcasts live **CPU %**, **RAM usage**, and **Uptime** over UDP port `55889` directly to your desktop.
+* **Multi-Port LAN SSH Scanner:** Scans your local `/24` subnet across standard and custom ports (`22, 2222, 2200, 22222, 8022` or custom port ranges), verifies actual `SSH-2.0` banners, and automatically grabs hardware MAC addresses from your ARP table.
+* **Universal Cross-Desktop SFTP Mounting:** Mounts and unmounts remote folders across **KDE Dolphin** (`remote:/` Network view and left Places sidebar via `user-places.xbel`), **GNOME Files / Nautilus**, **Thunar**, **Nemo**, **Caja** (`~/.config/gtk-3.0/bookmarks`), and `~/Network_Servers`.
+* **Native Default Terminal Detection:** Automatically detects and launches SSH sessions in your desktop environment's configured default terminal (supports **Konsole**, **Ghostty**, **Ptyxis**, **GNOME Terminal / Console**, **XFCE4 Terminal**, **Kitty**, **Alacritty**, **WezTerm**, and **Cosmic Terminal**).
+* **Power-User Toolkit Built In:**
+  * **1-Click SSH & Auto-`tmux`:** Connect normally or automatically attach/create a persistent `tmux` session.
+  * **Local Port Tunneling:** Guided dialog to forward local ports (`localhost:LPORT -> remote:RPORT`).
+  * **Custom Server Commands:** Save per-server shell commands (like `topgrade`, `docker ps`, or system updates) and trigger them from the GUI or tray menu.
+  * **Wake-on-LAN & SSH Key Pushing:** Send magic packets using saved MAC addresses or push public keys (`ssh-copy-id`) in one click.
+* **8 Shared Color Themes:** Switch between *Royal Purple*, *Cyber Neon*, *Matrix Green*, *Solar Amber*, *Crimson Red*, *Oceanic Blue*, *Rose Pink*, and *Stealth Slate*.
 
 ---
 
-## Installation & Deployment
+## Installation
 
-### Step 1: Clone and Build
-Ensure execution permissions are set, then execute the installation script to compile the modular source files and deploy binaries to your local path:
+The universal installer sets up the application inside standard user-level FreeDesktop/XDG directories (`~/.local/share/sshm` and `~/.local/bin`), installs the custom scalable SVG icon, creates your desktop launcher entry, and configures login autostart. It works across **Fedora**, **Bazzite / Silverblue**, **Ubuntu / Debian**, **Arch / CachyOS**, and **openSUSE**.
 
 ```bash
-cd ~/Projects/sshm
-chmod +x dev.sh build.sh install.sh sshm-tray.py
+git clone https://github.com/yourusername/sshm.git
+cd sshm
+chmod +x install.sh
 ./install.sh
 ```
-*(Verify that `~/.local/bin` is included in your user environment `$PATH`).*
 
-### Step 2: Development & Live Testing
-To test modular source modifications made inside the `src/` directory without performing a full reinstall, use the live test runner wrapper:
+### Uninstalling
+
+To stop the background monitor and cleanly remove all installed binaries, icons, and `.desktop` shortcuts (while keeping your `~/.ssh_servers` profile data safe):
 
 ```bash
-./dev.sh
+./install.sh --uninstall
 ```
 
-### Step 3: Execution
-* **Terminal Interface:** Run the core TUI application from any terminal emulator (Konsole, Ptyxis, Alacritty, Termux):
-  ```bash
-  sshm
-  ```
-* **System Tray Monitor:** Launch the background tray companion as a daemon process:
-  ```bash
-  sshm-tray &
-  ```
+---
+
+## Usage & Launch Modes
+
+Once installed, you can launch **SSH Connection Hub** from your desktop's Application Launcher (under **Internet** or **System**), by clicking the system tray icon, or from any terminal:
+
+| Command | Description |
+| :--- | :--- |
+| **`sshm-gui`** | Opens the **Desktop GUI Control Center** immediately (or brings the existing instance to the front). |
+| **`sshm-tray`** | Starts silently in the **System Tray** with zero window overhead. Left-click the tray icon anytime to open the GUI. |
+| **`sshm-tray --no-tray`** | Runs the GUI Control Center as a standalone desktop window without a system tray icon. |
+| **`sshm`** | Launches the interactive **Terminal TUI** directly inside your current terminal shell. |
 
 ---
 
-## Configuration File Specifications
+## Configuration & File Locations
 
-* **Server Profiles (`~/.ssh_servers`):** Structured as a flat, pipe-delimited configuration database:
-  ```text
-  Name|Username|HostAddress|Port|Tag|MACAddress|KeyPath
-  ```
-* **Theme Configuration (`~/.ssh_hub_theme`):** Stores the active integer identifier corresponding to your selected border and accent palette (`0` through `7`).
-* **Mount Directories (`~/Network_Servers/`):** Contains localized desktop shortcut definitions facilitating system file manager integration.
+All user data is stored in simple, human-readable files in your home directory:
+
+* **`~/.ssh_servers`** — Pipe-delimited (`|`) server list: `Name|User|Host|Port|Tag|MAC|KeyPath`
+* **`~/.ssh_custom_commands.json`** — Per-server custom shell commands and labels
+* **`~/.ssh_tray_hidden.json`** — List of servers set to `[GUI Only]` (hidden from background tray polling)
+* **`~/.ssh_hub_theme`** — Active theme index (`0`–`7`) shared between the GUI and TUI
+* **`/dev/shm/sshm_telemetry.json`** — In-memory RAM disk cache for live UDP node telemetry
 
 ---
 
-## Acknowledgments & Development Attribution
+## AI Assistance Disclaimer
 
-This software project was developed with the assistance of artificial intelligence systems, which contributed to architectural planning, modular script refactoring, asynchronous queue handling, and telemetry socket synchronization algorithms.
+This project was developed with the assistance of AI tools for code generation, PyQt6 GUI layout design, cross-desktop compatibility, and documentation. All features, system integrations, and workflows were directed, tested, and verified on real hardware to ensure reliable day-to-day operation.

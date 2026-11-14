@@ -10,7 +10,7 @@ MOUNT_DIR="$HOME/Network_Servers"
 
 # Ensure config file exists
 touch "$CONFIG_FILE"
-mkdir -p "$MOUNT_DIR"
+mkdir -p "$MOUNT_DIR" "$HOME/.local/share/remoteview"
 
 # Base ANSI Colors
 C_RESET="\e[0m"
