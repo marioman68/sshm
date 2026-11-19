@@ -6,6 +6,9 @@ License:        MIT
 URL:            https://github.com/marioman68/sshm
 BuildArch:      noarch
 
+Source0:        %{name}-%{version}.tar.gz
+
+BuildRequires:  python3-devel
 Requires:       python3
 Requires:       python3-pyqt6
 Requires:       openssh-clients
@@ -18,10 +21,10 @@ Includes a PyQt6 Desktop GUI Control Center, a persistent System Tray Monitor,
 and a 256-color Python Curses Split-Pane Terminal TUI.
 
 %prep
-# Sources are already present in the repository checkout
+%autosetup -n %{name}-%{version}
 
 %build
-# Pure Python/Bash scripts — no compilation required
+# Pure Python package — no compilation required
 
 %install
 install -d %{buildroot}%{python3_sitelib}/sshm
@@ -37,30 +40,6 @@ cp -a src/sshm/. %{buildroot}%{python3_sitelib}/sshm/
 # 2. Install SVG Icon
 if [ -f src/sshm/data/sshm.svg ]; then
     install -m 0644 src/sshm/data/sshm.svg %{buildroot}%{_datadir}/sshm/sshm-hub.svg
-else
-    cat << 'IEOF' > %{buildroot}%{_datadir}/sshm/sshm-hub.svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e1e2e"/>
-      <stop offset="100%" stop-color="#11111b"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#b48ead"/>
-      <stop offset="100%" stop-color="#89b4fa"/>
-    </linearGradient>
-  </defs>
-  <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#bg)" stroke="url(#accent)" stroke-width="5"/>
-  <rect x="24" y="28" width="80" height="26" rx="6" fill="#313244" stroke="#45475a" stroke-width="2"/>
-  <circle cx="38" cy="41" r="5" fill="#52ff52"/>
-  <rect x="52" y="38" width="40" height="6" rx="3" fill="#cdd6f4"/>
-  <rect x="24" y="64" width="80" height="36" rx="6" fill="#181825" stroke="#45475a" stroke-width="2"/>
-  <path d="M 34 76 L 44 82 L 34 88" fill="none" stroke="#52ff52" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <line x1="50" y1="88" x2="66" y2="88" stroke="#89b4fa" stroke-width="3.5" stroke-linecap="round"/>
-  <circle cx="100" cy="100" r="14" fill="#1e1e2e" stroke="#11111b" stroke-width="3"/>
-  <circle cx="100" cy="100" r="9" fill="#52ff52"/>
-</svg>
-IEOF
 fi
 install -m 0644 %{buildroot}%{_datadir}/sshm/sshm-hub.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/sshm-hub.svg
 
@@ -125,5 +104,5 @@ AEOF
 %config(noreplace) %{_sysconfdir}/xdg/autostart/sshm-tray.desktop
 
 %changelog
-* Wed Nov 18 2026 Lucas Dunham - 2.2.0-1
-- Install src/sshm package tree and module entrypoints instead of missing root scripts
+* Wed Nov 18 2026 Lucas Dunham - 3.2.1-1
+- Add python3-devel BuildRequires and package from Source0 archive
