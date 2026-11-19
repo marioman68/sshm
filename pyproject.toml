@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sshm"
+dynamic = ["version"]
+description = "SSH Connection Hub — desktop GUI, tray monitor, terminal UI and CLI for managing SSH servers"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Lucas Dunham" }]
+requires-python = ">=3.10"
+keywords = ["ssh", "sftp", "homelab", "tui", "tray", "wake-on-lan", "telemetry"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Console :: Curses",
+  "Environment :: X11 Applications :: Qt",
+  "Intended Audience :: System Administrators",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: System :: Networking",
+  "Topic :: System :: Systems Administration",
+]
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["PyQt6>=6.4"]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/marioman68/sshm"
+Issues = "https://github.com/marioman68/sshm/issues"
+
+[project.scripts]
+sshm = "sshm.cli:main"
+
+[project.gui-scripts]
+sshm-gui = "sshm.gui.app:main_gui"
+sshm-tray = "sshm.gui.app:main_tray"
+
+[tool.setuptools.dynamic]
+version = { attr = "sshm.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"sshm.data" = ["*.py", "*.svg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003", "SIM105", "B904"]

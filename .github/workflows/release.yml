@@ -1,0 +1,47 @@
+name: Release
+
+# Push a tag like v3.2.0 (after `make bump`) to publish a GitHub release and
+# kick off the COPR build.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      COPR_WEBHOOK_URL: ${{ secrets.COPR_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tag must match the package version
+        run: |
+          v=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/sshm/__init__.py)
+          if [ "$GITHUB_REF_NAME" != "v$v" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match __version__ $v — run 'make bump' and commit first"
+            exit 1
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - name: Test
+        run: pip install pytest ruff && ruff check src tests scripts && pytest -q -p no:warnings -k "not gui"
+      - name: Build release files
+        run: |
+          make dist zip
+          python3 scripts/release_notes.py "$VERSION" > notes.md
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" "dist/sshm-$VERSION.tar.gz" "dist/sshm-$VERSION.zip"
+          --title "sshm $VERSION" --notes-file notes.md
+      - name: Trigger COPR build
+        # Optional: set the COPR_WEBHOOK_URL repository secret to your COPR
+        # package's custom webhook URL. Skip this if COPR's own GitHub
+        # integration already rebuilds on every push/tag.
+        if: env.COPR_WEBHOOK_URL != ''
+        run: curl -fsS -X POST "$COPR_WEBHOOK_URL"
