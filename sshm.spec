@@ -1,9 +1,11 @@
+%global forgeurl https://github.com/marioman68/sshm
+
 Name:           sshm
 Version:        3.2.1
 Release:        1%{?dist}
 Summary:        SSH Connection Hub, SFTP Mounter, and Live Telemetry Control Center
 License:        MIT
-URL:            https://github.com/marioman68/sshm
+URL:            %{forgeurl}
 BuildArch:      noarch
 
 Source0:        %{name}-%{version}.tar.gz
@@ -24,7 +26,7 @@ and a 256-color Python Curses Split-Pane Terminal TUI.
 %autosetup -n %{name}-%{version}
 
 %build
-# Pure Python package — no compilation required
+# Pure Python package; runtime dependencies are managed via Requires
 
 %install
 install -d %{buildroot}%{python3_sitelib}/sshm
@@ -34,37 +36,20 @@ install -d %{buildroot}%{_datadir}/applications
 install -d %{buildroot}%{_datadir}/icons/hicolor/scalable/apps
 install -d %{buildroot}%{_sysconfdir}/xdg/autostart
 
-# 1. Install the sshm Python package tree from src/sshm
+# Install Python package tree from src/sshm
 cp -a src/sshm/. %{buildroot}%{python3_sitelib}/sshm/
 
-# 2. Install SVG Icon
+# Install application icon
 if [ -f src/sshm/data/sshm.svg ]; then
     install -m 0644 src/sshm/data/sshm.svg %{buildroot}%{_datadir}/sshm/sshm-hub.svg
+    install -m 0644 src/sshm/data/sshm.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/sshm-hub.svg
 fi
-install -m 0644 %{buildroot}%{_datadir}/sshm/sshm-hub.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/sshm-hub.svg
 
-# 3. Create /usr/bin launchers targeting the installed sshm package
-cat << 'WEOF' > %{buildroot}%{_bindir}/sshm
-#!/usr/bin/env bash
-printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l\033[?1015l'
-exec /usr/bin/python3 -m sshm "$@"
-WEOF
-chmod 0755 %{buildroot}%{_bindir}/sshm
-
-cat << 'GEOF' > %{buildroot}%{_bindir}/sshm-gui
-#!/usr/bin/env bash
-exec /usr/bin/python3 -m sshm.gui.app "$@"
-GEOF
-chmod 0755 %{buildroot}%{_bindir}/sshm-gui
-
-cat << 'TEOF' > %{buildroot}%{_bindir}/sshm-tray
-#!/usr/bin/env bash
-exec /usr/bin/python3 -m sshm.gui.tray "$@"
-TEOF
-chmod 0755 %{buildroot}%{_bindir}/sshm-tray
-
-# 4. Create Application Menu Launcher
-cat << 'DEOF' > %{buildroot}%{_datadir}/applications/sshm-gui.desktop
+# Install desktop entry if present in packaging/, otherwise write a clean default
+if [ -f packaging/io.github.marioman68.sshm.desktop ]; then
+    install -m 0644 packaging/io.github.marioman68.sshm.desktop %{buildroot}%{_datadir}/applications/sshm-gui.desktop
+else
+    cat << 'DEOF' > %{buildroot}%{_datadir}/applications/sshm-gui.desktop
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -78,8 +63,31 @@ Categories=System;Network;RemoteAccess;
 Keywords=ssh;sftp;server;homelab;terminal;tray;telemetry;sshm;
 StartupNotify=false
 DEOF
+fi
 
-# 5. Create System-Wide XDG Autostart Entry
+# CLI / TUI wrapper
+cat << 'WEOF' > %{buildroot}%{_bindir}/sshm
+#!/usr/bin/env bash
+printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l\033[?1015l'
+exec /usr/bin/python3 -m sshm "$@"
+WEOF
+chmod 0755 %{buildroot}%{_bindir}/sshm
+
+# GUI wrapper
+cat << 'GEOF' > %{buildroot}%{_bindir}/sshm-gui
+#!/usr/bin/env bash
+exec /usr/bin/python3 -m sshm.gui.app "$@"
+GEOF
+chmod 0755 %{buildroot}%{_bindir}/sshm-gui
+
+# Tray wrapper
+cat << 'TEOF' > %{buildroot}%{_bindir}/sshm-tray
+#!/usr/bin/env bash
+exec /usr/bin/python3 -m sshm.gui.tray "$@"
+TEOF
+chmod 0755 %{buildroot}%{_bindir}/sshm-tray
+
+# Autostart entry for tray monitor
 cat << 'AEOF' > %{buildroot}%{_sysconfdir}/xdg/autostart/sshm-tray.desktop
 [Desktop Entry]
 Name=SSH Hub Tray Monitor
@@ -94,6 +102,8 @@ StartupNotify=false
 AEOF
 
 %files
+%license LICENSE
+%doc README.md CHANGELOG.md
 %{python3_sitelib}/sshm/
 %{_datadir}/sshm/
 %{_bindir}/sshm
@@ -105,4 +115,4 @@ AEOF
 
 %changelog
 * Wed Nov 18 2026 Lucas Dunham - 3.2.1-1
-- Add python3-devel BuildRequires and package from Source0 archive
+- Generate clean spec for src/sshm package layout with python3-devel build dependency
