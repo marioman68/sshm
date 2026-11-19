@@ -1,105 +1,118 @@
+%global forgeurl https://github.com/marioman68/sshm
+
 Name:           sshm
-Version:        3.3.0
+Version:        3.2.1
 Release:        1%{?dist}
-Summary:        SSH connection hub: terminal UI and CLI for managing SSH servers
+Summary:        SSH Connection Hub, SFTP Mounter, and Live Telemetry Control Center
 License:        MIT
-URL:            https://github.com/marioman68/sshm
-# COPR SCM builds create this tarball from the checkout (.copr/Makefile);
-# for manual builds, download the GitHub tag archive.
-Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
+URL:            %{forgeurl}
 BuildArch:      noarch
 
-BuildRequires:  python3-devel
-BuildRequires:  pyproject-rpm-macros
-BuildRequires:  desktop-file-utils
-# test suite (%%check): pty-driven TUI tests, ps parsing, installer syntax check
-BuildRequires:  python3-pytest
-BuildRequires:  procps-ng
-BuildRequires:  ncurses-base
-BuildRequires:  bash
+Source0:        %{name}-%{version}.tar.gz
 
+BuildRequires:  python3-devel
+Requires:       python3
+Requires:       python3-pyqt6
 Requires:       openssh-clients
-Recommends:     %{name}-gui = %{version}-%{release}
 Recommends:     tmux
-Recommends:     fuse-sshfs
-Suggests:       wl-clipboard
-Suggests:       htop
 
 %description
-sshm manages your SSH servers from one place: a fast curses terminal UI that
-also works over SSH and a scriptable CLI, sharing one config with the optional
-desktop app (sshm-gui). Fuzzy search, tags and favourites, tmux sessions,
-background port forwards, a live process viewer, Docker/Podman container
-awareness, SFTP bookmarks and SSHFS mounts, Wake-on-LAN, LAN discovery,
-~/.ssh/config import/export and an HMAC-signed telemetry agent.
-
-Install with --setopt=install_weak_deps=False on servers to skip the GUI.
-
-%package gui
-Summary:        Desktop app and system tray monitor for sshm
-Requires:       %{name} = %{version}-%{release}
-Requires:       python3-pyqt6
-Recommends:     xdg-utils
-
-%description gui
-PyQt6 desktop control center and system tray monitor for sshm: live server
-metrics, container controls, process viewer, tunnels and up/down notifications.
+A unified hybrid Linux desktop utility for managing SSH servers, mounting remote
+SFTP folders, scanning local networks, and monitoring live server CPU/RAM telemetry.
+Includes a PyQt6 Desktop GUI Control Center, a persistent System Tray Monitor,
+and a 256-color Python Curses Split-Pane Terminal TUI.
 
 %prep
 %autosetup -n %{name}-%{version}
 
-%generate_buildrequires
-%pyproject_buildrequires
-
 %build
-%pyproject_wheel
+# Pure Python package; runtime dependencies are managed via Requires
 
 %install
-%pyproject_install
-%pyproject_save_files sshm
-install -Dpm 0644 src/sshm/data/sshm.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/sshm.svg
-desktop-file-install --dir=%{buildroot}%{_datadir}/applications packaging/io.github.marioman68.sshm.desktop
+install -d %{buildroot}%{python3_sitelib}/sshm
+install -d %{buildroot}%{_datadir}/sshm
+install -d %{buildroot}%{_bindir}
+install -d %{buildroot}%{_datadir}/applications
+install -d %{buildroot}%{_datadir}/icons/hicolor/scalable/apps
+install -d %{buildroot}%{_sysconfdir}/xdg/autostart
 
-%check
-desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.marioman68.sshm.desktop
-%pyproject_check_import -e 'sshm.gui*'
-# GUI tests need PyQt6 and a display; the core, CLI and TUI suites run headless
-%pytest -k "not gui" -p no:cacheprovider
+# Install Python package tree from src/sshm
+cp -a src/sshm/. %{buildroot}%{python3_sitelib}/sshm/
 
-%files -f %{pyproject_files}
+# Install application icon
+if [ -f src/sshm/data/sshm.svg ]; then
+    install -m 0644 src/sshm/data/sshm.svg %{buildroot}%{_datadir}/sshm/sshm-hub.svg
+    install -m 0644 src/sshm/data/sshm.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/sshm-hub.svg
+fi
+
+# Install desktop entry if present in packaging/, otherwise write a clean default
+if [ -f packaging/io.github.marioman68.sshm.desktop ]; then
+    install -m 0644 packaging/io.github.marioman68.sshm.desktop %{buildroot}%{_datadir}/applications/sshm-gui.desktop
+else
+    cat << 'DEOF' > %{buildroot}%{_datadir}/applications/sshm-gui.desktop
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=SSH Connection Hub
+GenericName=SSH Server Manager & Telemetry Hub
+Comment=Manage SSH servers, mount SFTP folders, scan LAN, and monitor live CPU/RAM telemetry
+Exec=/usr/bin/sshm-gui
+Icon=sshm-hub
+Terminal=false
+Categories=System;Network;RemoteAccess;
+Keywords=ssh;sftp;server;homelab;terminal;tray;telemetry;sshm;
+StartupNotify=false
+DEOF
+fi
+
+# CLI / TUI wrapper
+cat << 'WEOF' > %{buildroot}%{_bindir}/sshm
+#!/usr/bin/env bash
+printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l\033[?1015l'
+exec /usr/bin/python3 -m sshm "$@"
+WEOF
+chmod 0755 %{buildroot}%{_bindir}/sshm
+
+# GUI wrapper
+cat << 'GEOF' > %{buildroot}%{_bindir}/sshm-gui
+#!/usr/bin/env bash
+exec /usr/bin/python3 -m sshm.gui.app "$@"
+GEOF
+chmod 0755 %{buildroot}%{_bindir}/sshm-gui
+
+# Tray wrapper
+cat << 'TEOF' > %{buildroot}%{_bindir}/sshm-tray
+#!/usr/bin/env bash
+exec /usr/bin/python3 -m sshm.gui.tray "$@"
+TEOF
+chmod 0755 %{buildroot}%{_bindir}/sshm-tray
+
+# Autostart entry for tray monitor
+cat << 'AEOF' > %{buildroot}%{_sysconfdir}/xdg/autostart/sshm-tray.desktop
+[Desktop Entry]
+Name=SSH Hub Tray Monitor
+Comment=System Tray Monitor for SSH Connection Hub
+Exec=/usr/bin/sshm-tray
+Icon=sshm-hub
+Terminal=false
+Type=Application
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel
+StartupNotify=false
+AEOF
+
+%files
 %license LICENSE
 %doc README.md CHANGELOG.md
+%{python3_sitelib}/sshm/
+%{_datadir}/sshm/
 %{_bindir}/sshm
-%exclude %{python3_sitelib}/sshm/gui/
-
-%files gui
-%{python3_sitelib}/sshm/gui/
 %{_bindir}/sshm-gui
 %{_bindir}/sshm-tray
-%{_datadir}/applications/io.github.marioman68.sshm.desktop
-%{_datadir}/icons/hicolor/scalable/apps/sshm.svg
+%{_datadir}/applications/sshm-gui.desktop
+%{_datadir}/icons/hicolor/scalable/apps/sshm-hub.svg
+%config(noreplace) %{_sysconfdir}/xdg/autostart/sshm-tray.desktop
 
 %changelog
-* Wed Nov 18 2026 Lucas Dunham - 3.3.0-1
-- Alerts, uptime history, run on many servers, backup/restore
-
 * Wed Nov 18 2026 Lucas Dunham - 3.2.1-1
-- README and RELEASING point to the lucasdunham85/sshm COPR project; COPR build badge
-
-* Wed Nov 18 2026 Lucas Dunham - 3.2.0-1
-- COPR-ready packaging and release pipeline
-
-* Wed Nov 18 2026 Lucas Dunham - 3.1.0-1
-- Process viewer, Docker/Podman awareness, Minecraft status, larger remembered window
-- Fix process-window freeze and SSH ControlPersist stalls
-
-* Wed Nov 18 2026 Lucas Dunham - 3.0.0-1
-- Rewrite around a shared core used by GUI, tray, TUI and the new CLI
-- Signed telemetry (HMAC-SHA256), SSHFS mounts, background tunnels,
-  ssh_config import/export, ProxyJump, fuzzy search and favourites
-- Automatic migration of ~/.ssh_servers and other 2.x settings
-- No longer installs a system-wide autostart entry; enable it in Settings
-
-* Sat Nov 14 2026 Lucas Dunham - 2.2.0-1
-- Migrate terminal TUI to Python curses with mouse hover and modal overlays
-- Package GUI, System Tray, and TUI for Fedora COPR
+- Generate clean spec for src/sshm package layout with python3-devel build dependency
