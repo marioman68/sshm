@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: System libraries for headless Qt
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1
+      - name: Install
+        run: pip install -e ".[dev,gui]"
+      - name: Lint
+        run: ruff check src tests scripts
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest -v -p no:warnings
+      - name: Installer syntax
+        run: bash -n install.sh
+
+  rpm:
+    # Builds the RPM exactly the way COPR does (SCM → make_srpm → rebuild),
+    # so a broken spec fails here instead of on COPR.
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Build tools
+        run: >
+          dnf -y install git make tar rpm-build python3-devel pyproject-rpm-macros
+          desktop-file-utils python3-pytest procps-ng ncurses-base bash
+          python3-pip python3-setuptools python3-wheel python3-packaging
+      - uses: actions/checkout@v4
+      - name: Source RPM (COPR path)
+        run: make -f .copr/Makefile srpm outdir="$PWD/out"
+      - name: Binary RPMs (runs %check)
+        run: rpmbuild --rebuild out/*.src.rpm --define "_rpmdir $PWD/out"
+      - name: Install and smoke-test
+        run: |
+          dnf -y install out/noarch/sshm-[0-9]*.rpm
+          sshm --version
+          sshm ls
+          rpm -q --requires sshm | grep -vq pyqt6 && echo "core package has no Qt dependency ✓"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpms
+          path: out/**/*.rpm

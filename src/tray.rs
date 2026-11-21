@@ -35,7 +35,7 @@ impl ksni::Tray for SshmTray {
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let mut m: Vec<MenuItem<Self>> = vec![];
         m.push(StandardItem { label: "Open sshm".into(), icon_data: self.open_icon.clone(), activate: Box::new(|t: &mut Self| { let _ = t.tx.send(Cmd::Open); }), ..Default::default() }.into());
-        m.push(std_item("Open terminal UI", "utilities-terminal", |t| { let _ = t.tx.send(Cmd::Tui); }));
+        if paths::which("sshm").is_some() { m.push(std_item("Open terminal UI", "utilities-terminal", |t| { let _ = t.tx.send(Cmd::Tui); })); }
         m.push(MenuItem::Separator);
         if self.rows.is_empty() { m.push(info("No servers monitored in the tray".into())); }
         for r in &self.rows {
@@ -161,5 +161,5 @@ fn notify(evs: &[crate::core::history::Event]) {
 }
 pub fn notify_text(summary: &str, body: &str) {
     let (s, b) = (summary.to_string(), body.to_string());
-    std::thread::spawn(move || { let _ = notify_rust::Notification::new().appname("sshm").summary(&s).body(&b).icon("sshm").timeout(notify_rust::Timeout::Milliseconds(8000)).show(); });
+    std::thread::spawn(move || { let _ = notify_rust::Notification::new().appname("sshm").summary(&s).body(&b).icon("io.github.marioman68.sshm").timeout(notify_rust::Timeout::Milliseconds(8000)).show(); });
 }

@@ -43,7 +43,7 @@ fn set_autostart(on: bool) -> Result<(), String> {
     let p = autostart_path();
     if !on { let _ = std::fs::remove_file(&p); return Ok(()); }
     let exe = std::env::current_exe().map(|e| e.to_string_lossy().to_string()).unwrap_or_else(|_| "sshm-gui".into());
-    let text = format!("[Desktop Entry]\nType=Application\nName=sshm tray monitor\nComment=Watch your SSH servers from the system tray\nExec={exe} --tray\nIcon=sshm\nTerminal=false\nX-GNOME-Autostart-enabled=true\nX-GNOME-Autostart-Delay=5\nX-KDE-autostart-after=panel\n");
+    let text = format!("[Desktop Entry]\nType=Application\nName=sshm tray monitor\nComment=Watch your SSH servers from the system tray\nExec={exe} --tray\nIcon=io.github.marioman68.sshm\nTerminal=false\nX-GNOME-Autostart-enabled=true\nX-GNOME-Autostart-Delay=5\nX-KDE-autostart-after=panel\n");
     if let Some(d) = p.parent() { paths::ensure_dir(d, 0o755); }
     paths::atomic_write(&p, text.as_bytes(), 0o644).map_err(|e| e.to_string())
 }

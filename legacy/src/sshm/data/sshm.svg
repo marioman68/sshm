@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- sshm: a two-unit server stack with a status light; same drawing as the desktop app (desktop/src/icon.rs) -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#425470"/>
+      <stop offset="1" stop-color="#222c3c"/>
+    </linearGradient>
+    <mask id="badge-gap">
+      <rect width="128" height="128" fill="#fff"/>
+      <circle cx="98" cy="98" r="21" fill="#000"/>
+    </mask>
+  </defs>
+  <g mask="url(#badge-gap)">
+    <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#tile)"/>
+    <rect x="33.34" y="33.95" width="61.32" height="21.64" rx="5.41" fill="none" stroke="#f0f4fa" stroke-width="4.69"/>
+    <circle cx="45.96" cy="44.77" r="4.51" fill="#f0f4fa"/>
+    <line x1="58.59" y1="44.77" x2="82.04" y2="44.77" stroke="#f0f4fa" stroke-width="4.69" stroke-linecap="round"/>
+    <rect x="33.34" y="66.41" width="61.32" height="21.64" rx="5.41" fill="none" stroke="#f0f4fa" stroke-width="4.69"/>
+    <circle cx="45.96" cy="77.23" r="4.51" fill="#f0f4fa"/>
+    <line x1="58.59" y1="77.23" x2="82.04" y2="77.23" stroke="#f0f4fa" stroke-width="4.69" stroke-linecap="round"/>
+  </g>
+  <circle cx="98" cy="98" r="15" fill="#2ecc71"/>
+</svg>

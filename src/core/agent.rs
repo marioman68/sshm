@@ -5,7 +5,7 @@ use super::settings::Settings;
 use super::{paths, sshcmd};
 
 pub const SERVICE: &str = "sshm-agent.service";
-pub const AGENT_SOURCE: &str = include_str!("../../../src/sshm/data/sshm_agent.py");
+pub const AGENT_SOURCE: &str = include_str!("../../agent/sshm_agent.py");
 pub const STATUS_COMMAND: &str = "systemctl --user status sshm-agent.service --no-pager || true";
 
 pub fn bundled_version() -> String { AGENT_SOURCE.lines().find_map(|l| l.strip_prefix("AGENT_VERSION = \"").map(|r| r.trim_end_matches('"').to_string())).unwrap_or_else(|| "0".into()) }

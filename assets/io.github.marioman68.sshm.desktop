@@ -4,19 +4,14 @@ Name=SSH Connection Hub
 GenericName=SSH Server Manager
 Comment=Manage SSH servers, tunnels, SFTP mounts and live server telemetry
 Exec=sshm-gui
-Icon=sshm
+Icon=io.github.marioman68.sshm
 Terminal=false
 Categories=Network;RemoteAccess;System;
 Keywords=ssh;sftp;sshfs;server;homelab;tunnel;wake-on-lan;telemetry;terminal;
 StartupNotify=true
-StartupWMClass=sshm
-Actions=Tray;Terminal;
+StartupWMClass=io.github.marioman68.sshm
+Actions=Tray;
 
 [Desktop Action Tray]
-Name=Start in tray
-Exec=sshm-tray
-
-[Desktop Action Terminal]
-Name=Open terminal UI
-Exec=sshm
-Terminal=true
+Name=Start the tray monitor only
+Exec=sshm-gui --tray

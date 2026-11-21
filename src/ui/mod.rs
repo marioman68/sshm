@@ -307,7 +307,7 @@ impl App {
                     if item(ui, "Alerts & activity…", "") { acts.push(Act::Activity); }
                     if item(ui, "Active tunnels…", "") { acts.push(Act::TunnelsWin); }
                     ui.separator();
-                    if item(ui, "Open terminal UI", "") { acts.push(Act::Tui); }
+                    if paths::which("sshm").is_some() && item(ui, "Open terminal UI", "") { acts.push(Act::Tui); }
                     if item(ui, "Refresh status", "F5") { acts.push(Act::Refresh); }
                 });
                 ui.menu_button("View", |ui| {
