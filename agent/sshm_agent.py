@@ -22,7 +22,7 @@ import sys
 import time
 
 PROTOCOL = 2
-AGENT_VERSION = "3.3.0"
+AGENT_VERSION = "3.3.1"
 CONF = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/.config/sshm-agent/agent.json")
 
 
@@ -61,9 +61,26 @@ def meminfo():
 
 
 def disk():
-    st = os.statvfs("/")
-    total = st.f_blocks * st.f_frsize
-    return total - st.f_bavail * st.f_frsize, total
+    """Used/total bytes of the disk that holds the system's data.
+
+    On image-based systems (Bazzite, Silverblue, Kinoite, CoreOS…) "/" is a small read-only composefs/ostree
+    image that is always "100% full", so measure the writable filesystem behind /var (or /sysroot, /home) instead.
+    """
+    fallback = None
+    for path in ("/", "/var", "/sysroot", "/home"):
+        try:
+            st = os.statvfs(path)
+        except OSError:
+            continue
+        total = st.f_blocks * st.f_frsize
+        used = total - st.f_bavail * st.f_frsize
+        if fallback is None:
+            fallback = (used, total)
+        read_only = bool(st.f_flag & getattr(os, "ST_RDONLY", 1))
+        if read_only or total < 1 << 30:   # read-only or under 1 GiB: not where the data lives
+            continue
+        return used, total
+    return fallback or (0, 0)
 
 
 def uptime():

@@ -51,7 +51,6 @@ impl Store {
     pub fn remove(&mut self, id: &str) -> Result<(), String> { let n = self.servers.len(); self.servers.retain(|s| s.id != id); if n != self.servers.len() { self.save() } else { Ok(()) } }
     pub fn mark_connected(&mut self, id: &str) { if let Some(s) = self.servers.iter_mut().find(|s| s.id == id) { s.last_connected = paths::now(); let _ = self.save(); } }
     pub fn unique_name(&self, base: &str) -> String { let mut n = 2; let mut name = base.to_string(); while self.by_name(&name).is_some() { name = format!("{base}-{n}"); n += 1; } name }
-    #[allow(dead_code)]
     pub fn find(&self, q: &str) -> Option<&Server> {
         if let Some(s) = self.by_name(q) { return Some(s); }
         let ql = q.to_lowercase(); let pre: Vec<&Server> = self.servers.iter().filter(|s| s.name.to_lowercase().starts_with(&ql)).collect();

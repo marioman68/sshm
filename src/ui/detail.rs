@@ -61,8 +61,10 @@ fn spark(ui: &mut egui::Ui, vals: &[f64], col: Color32, h: f32, max: Option<f64>
     if vals.len() < 2 { return; }
     let m = max.unwrap_or_else(|| vals.iter().cloned().fold(1.0, f64::max)).max(1.0);
     let pts: Vec<egui::Pos2> = vals.iter().enumerate().map(|(i, v)| egui::pos2(r.left() + r.width() * i as f32 / (vals.len() - 1) as f32, r.bottom() - r.height() * (*v / m) as f32)).collect();
-    let mut fill = pts.clone(); fill.push(r.right_bottom()); fill.push(r.left_bottom());
-    ui.painter().add(egui::Shape::convex_polygon(fill, col.linear_multiply(0.12), Stroke::NONE));
+    // fill under the line one slice at a time (each slice is convex; the whole area usually isn't)
+    for w in pts.windows(2) {
+        ui.painter().add(egui::Shape::convex_polygon(vec![w[0], w[1], egui::pos2(w[1].x, r.bottom()), egui::pos2(w[0].x, r.bottom())], col.linear_multiply(0.12), Stroke::NONE));
+    }
     ui.painter().add(egui::Shape::line(pts, Stroke::new(1.5_f32, col)));
 }
 fn pill(ui: &mut egui::Ui, text: &str, col: Color32) {

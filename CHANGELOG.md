@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.0.1 — 2026-11-21
+
+- Agent 3.3.1: on image-based systems (Bazzite, Silverblue, Kinoite, CoreOS) the disk card showed the read-only root
+  image (always 100%, "0.0 GiB / 0.0 GiB"); it now reports the real data disk. Update agents from the banner on each server.
+- Latency graph no longer draws stray shapes.
+- `sshm-gui --deploy-agent NAME` installs or updates the agent from the command line.
+
 ## 4.0.0 — 2026-11-21
 
 - Rewritten in Rust: the desktop window and a native tray monitor in one program, `sshm-gui` (`--tray` for the monitor).

@@ -6,7 +6,7 @@
 %global debug_package %{nil}
 
 Name:           sshm
-Version:        4.0.0
+Version:        4.0.1
 Release:        1%{?dist}
 Summary:        SSH Connection Hub: desktop app and tray monitor for your SSH servers
 # sshm itself is MIT; the bundled Rust crates are MIT, Apache-2.0, BSD, Zlib, ISC, Unicode-3.0 and MPL-2.0 licensed
@@ -102,6 +102,12 @@ cargo test --release --frozen --offline
 %config(noreplace) %{_sysconfdir}/xdg/autostart/sshm-tray.desktop
 
 %changelog
+* Sat Nov 21 2026 Lucas Dunham - 4.0.1-1
+- Agent 3.3.1: report the real data disk on image-based systems (Bazzite, Silverblue, Kinoite)
+  instead of the read-only root image that always shows 100%
+- Fix stray shapes in the latency graph
+- sshm-gui --deploy-agent NAME installs or updates the agent from the command line
+
 * Sat Nov 21 2026 Lucas Dunham - 4.0.0-1
 - Rewritten in Rust: desktop window and native tray monitor in one program (sshm-gui)
 - Tray icon matches the desktop (panel colour on KDE, white on GNOME-style bars, colour tile elsewhere)
