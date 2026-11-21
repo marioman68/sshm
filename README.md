@@ -24,6 +24,7 @@ Desktop app · tray monitor · terminal UI · scriptable CLI, all sharing one co
 - [Install](#install)
 - [Upgrading from 2.x](#upgrading-from-2x)
 - [Using sshm](#using-sshm)
+- [Desktop app in Rust](#desktop-app-in-rust-desktop)
 - [Live telemetry](#live-telemetry)
 - [Files & settings](#files--settings)
 - [Architecture](#architecture)
@@ -194,6 +195,28 @@ sshm run nas Update
 sshm agent deploy nas                # or: status / remove
 sshm ls --json | jq '.[].host'
 ```
+
+## Desktop app in Rust (`desktop/`)
+
+The desktop window and tray monitor are rewritten in Rust (egui, plus a native StatusNotifierItem tray). They are a
+drop-in replacement for the PyQt `sshm-gui` / `sshm-tray`, use the same `~/.config/sshm` files, the same signed
+telemetry, history database and tunnel list, so the Python terminal UI and CLI keep working alongside.
+
+```bash
+cd desktop && ./install.sh        # builds, installs sshm-gui + sshm-tray, keeps the Python ones as *.python
+./install.sh --uninstall          # puts the Python launchers back
+```
+
+- **Tray icon that fits the desktop:**
+  - The icon is a line-drawn server stack. A status dot shows green (all servers up), amber (some up) or red (none up).
+  - On KDE it is drawn in your panel's text colour, read from the Plasma theme, and redrawn when you switch light/dark.
+  - On GNOME, Ubuntu and COSMIC it is white. On XFCE, MATE, Cinnamon and others it is a small colour tile.
+  - Override it in **Settings → Tray icon**.
+- **Two processes:**
+  - `sshm-gui --tray` is the long-running monitor: it receives telemetry, records uptime history and sends alert notifications.
+  - The window is its own process. Closing it leaves the tray running, and **File → Quit sshm** stops both.
+- **Requirements:** a Rust toolchain to build. Running needs no Python or Qt. Agents on your servers stay the
+  zero-dependency Python agent.
 
 ## Live telemetry
 

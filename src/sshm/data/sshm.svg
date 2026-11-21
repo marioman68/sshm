@@ -1,17 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- sshm: a two-unit server stack with a status light; same drawing as the desktop app (desktop/src/icon.rs) -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#262638"/>
-      <stop offset="1" stop-color="#14141f"/>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#425470"/>
+      <stop offset="1" stop-color="#222c3c"/>
     </linearGradient>
-    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#c4a1f0"/>
-      <stop offset="1" stop-color="#60a5fa"/>
-    </linearGradient>
+    <mask id="badge-gap">
+      <rect width="128" height="128" fill="#fff"/>
+      <circle cx="98" cy="98" r="21" fill="#000"/>
+    </mask>
   </defs>
-  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bg)"/>
-  <rect x="8" y="8" width="112" height="112" rx="28" fill="none" stroke="url(#ring)" stroke-width="5"/>
-  <path d="M34 46 L56 64 L34 82" fill="none" stroke="#e2e4f3" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
-  <line x1="64" y1="84" x2="92" y2="84" stroke="#e2e4f3" stroke-width="9" stroke-linecap="round"/>
-  <circle cx="96" cy="38" r="12" fill="#4ade80" stroke="#14141f" stroke-width="5"/>
+  <g mask="url(#badge-gap)">
+    <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#tile)"/>
+    <rect x="33.34" y="33.95" width="61.32" height="21.64" rx="5.41" fill="none" stroke="#f0f4fa" stroke-width="4.69"/>
+    <circle cx="45.96" cy="44.77" r="4.51" fill="#f0f4fa"/>
+    <line x1="58.59" y1="44.77" x2="82.04" y2="44.77" stroke="#f0f4fa" stroke-width="4.69" stroke-linecap="round"/>
+    <rect x="33.34" y="66.41" width="61.32" height="21.64" rx="5.41" fill="none" stroke="#f0f4fa" stroke-width="4.69"/>
+    <circle cx="45.96" cy="77.23" r="4.51" fill="#f0f4fa"/>
+    <line x1="58.59" y1="77.23" x2="82.04" y2="77.23" stroke="#f0f4fa" stroke-width="4.69" stroke-linecap="round"/>
+  </g>
+  <circle cx="98" cy="98" r="15" fill="#2ecc71"/>
 </svg>
