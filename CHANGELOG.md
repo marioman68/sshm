@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.0.0 — 2026-11-21
+
+- Rewritten in Rust: the desktop window and a native tray monitor in one program, `sshm-gui` (`--tray` for the monitor).
+- New server-stack icon. The tray icon matches the desktop: panel colour on KDE (follows light/dark), white on GNOME-style
+  bars, a colour tile elsewhere; green / amber / red status dot.
+- Same config, telemetry, history and tunnels as before; existing agents keep reporting.
+- The Python GUI, terminal UI and CLI are retired and kept under `legacy/`.
+- COPR: offline RPM build from vendored crates; upgrades in place from the 3.x Python package.
+
 ## 3.3.0 — 2026-11-18
 
 ### Added

@@ -145,7 +145,7 @@ pub fn theme_files_stamp() -> Vec<Option<std::time::SystemTime>> {
 mod tests {
     use super::*;
     #[test] fn renders() {
-        let dir = std::path::Path::new("/tmp/claude-1000/-home-lucas/f30a5e91-c334-4efc-8da6-57d16f7cf872/scratchpad/icons");
+        let dir = std::env::temp_dir().join("sshm-icon-test"); let dir = dir.as_path();
         let _ = std::fs::create_dir_all(dir);
         for (n, st) in [("ok", State::Ok), ("partial", State::Partial), ("down", State::Down), ("none", State::None)] {
             for sz in [22u32, 44, 96] {

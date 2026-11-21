@@ -10,3 +10,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test
       - run: cargo build --release
+
+  rpm:
+    # the same steps COPR runs: make the SRPM (with network), then build it offline
+    runs-on: ubuntu-latest
+    container: registry.fedoraproject.org/fedora:latest
+    steps:
+      - run: dnf -y install git make rpm-build cargo rust gcc desktop-file-utils python3 tar xz
+      - uses: actions/checkout@v4
+      - run: make -f .copr/Makefile srpm outdir=$PWD/dist spec=$PWD/packaging/sshm.spec
+      - run: rpmbuild --rebuild dist/*.src.rpm --define "_rpmdir $PWD/dist/rpms"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpms
+          path: dist/rpms/**/*.rpm

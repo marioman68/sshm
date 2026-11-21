@@ -1,0 +1,1 @@
+packaging/sshm.spec

@@ -80,6 +80,18 @@ cargo test              # unit tests (includes a packet signed by the Python age
 cargo run -- --no-tray  # window without starting the tray
 ```
 
+## Releasing (COPR)
+
+COPR builds straight from the repository with `make -f .copr/Makefile srpm` (build method *make_srpm*, spec
+`packaging/sshm.spec`). That step bundles the Rust dependencies (`packaging/vendor.py`) so the RPM builds offline.
+
+1. Bump `version` in `Cargo.toml` and `Version:` in `packaging/sshm.spec` (the build refuses if they differ), and add a
+   `%changelog` entry and a CHANGELOG.md line.
+2. Commit, tag (`git tag v4.0.1`), and push; COPR (and the CI `rpm` job) builds it.
+
+Users get it with `sudo dnf copr enable lucasdunham85/sshm && sudo dnf install sshm`. Upgrading from the old Python
+3.x package works in place with `sudo dnf upgrade`.
+
 ## Legacy
 
 The previous Python version (PyQt desktop app, curses terminal UI, CLI, packaging) is in [`legacy/`](legacy/). It reads

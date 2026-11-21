@@ -234,8 +234,8 @@ mod python_packet {
     use super::*;
     /// a packet signed by Python's hmac/json, as the agent does
     #[test] fn verifies_real_python_signature() {
-        let Ok(raw) = std::fs::read("/tmp/claude-1000/-home-lucas/f30a5e91-c334-4efc-8da6-57d16f7cf872/scratchpad/packet.json") else { return };
-        let m: Map<String, Value> = serde_json::from_slice(&raw).unwrap();
+        let raw = include_bytes!("../../packaging/testdata/python-signed-packet.json");
+        let m: Map<String, Value> = serde_json::from_slice(raw).unwrap();
         assert!(verify(&m, "testsecret"), "signature from Python must verify");
         assert!(!verify(&m, "wrong"));
         let mut t = m.clone(); t.insert("cpu".into(), serde_json::json!(99.9)); assert!(!verify(&t, "testsecret"), "tampered packet must fail");
